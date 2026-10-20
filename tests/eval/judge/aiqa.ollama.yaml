@@ -1,0 +1,13 @@
+# Arbeitsbereich nur für das Judge-Eval (pnpm eval:judge): Dummy-Zielsystem, Judge auf Ollama.
+# Nie in der CI. Modell und URL lassen sich hier anpassen, Schlüssel nur als ${NAME}.
+version: 1
+target:
+  name: eval-dummy
+  adapter: dummy
+judge:
+  baseUrl: http://localhost:11434/v1
+  model: qwen2.5:7b
+  temperature: 0
+  requestsPerMinute: 1000
+  requestMs: 120000
+goldsets: []

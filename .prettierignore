@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+.tools/
+runs/
+reports/
+workspaces/
+spikes/*/node_modules/
+spikes/*/pnpm-lock.yaml
+spikes/*/results/
+pnpm-lock.yaml
+CHANGELOG.md
+docs/foundation-briefing.md
+tests/fixtures/reports/
+tests/fixtures/validate/broken.yaml

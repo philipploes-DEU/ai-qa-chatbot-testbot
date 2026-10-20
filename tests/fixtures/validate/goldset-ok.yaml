@@ -1,0 +1,15 @@
+id: fixture-goldset
+name: Fixture Goldset
+version: 1
+owner: Test
+cases:
+  - id: fall-a
+    kind: qa
+    input: Frage A
+    expected:
+      mustContain: [A]
+  - id: fall-b
+    kind: probe
+    input: Frage B
+    expected:
+      refusal: true

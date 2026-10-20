@@ -1,0 +1,19 @@
+# Beispiel-Spec für den Playwright-Adapter. Beschreibt die Oberfläche der statischen Seite
+# tests/fixtures/chat-page.html, gegen die die Tests des Adapters laufen.
+name: beispiel-web
+input:
+  selector: "#message"
+send:
+  method: click
+  selector: "#send"
+response:
+  selector: ".message.assistant"
+  wait:
+    type: stable
+    forMs: 500
+before:
+  - action: click
+    selector: "#cookie-ok"
+reset:
+  method: click
+  selector: "#new-conversation"

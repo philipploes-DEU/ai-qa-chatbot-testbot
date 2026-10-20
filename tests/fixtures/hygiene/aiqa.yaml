@@ -1,0 +1,12 @@
+# Fixture: Judge und Zielsystem nutzen dasselbe Modell, aiqa validate muss das ablehnen.
+version: 1
+target:
+  name: bot
+  adapter: openai-compatible
+  endpoint: http://localhost:4020/v1
+  openai:
+    model: qwen2.5:7b
+judge:
+  baseUrl: http://localhost:11434/v1
+  model: qwen2.5:7b
+goldsets: []

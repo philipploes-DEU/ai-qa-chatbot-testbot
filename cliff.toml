@@ -1,0 +1,45 @@
+# git-cliff configuration. Generates CHANGELOG.md from Conventional Commits.
+# Run with: pnpm changelog
+
+[changelog]
+header = """
+# Changelog
+
+Alle nennenswerten Änderungen an AI QA. Erzeugt aus Conventional Commits mit git-cliff.
+Issue-Nummern beziehen sich auf das private Entwicklungs-Repository (ADR 0023).
+
+"""
+body = """
+{% if version %}\
+## [{{ version | trim_start_matches(pat="v") }}] vom {{ timestamp | date(format="%d.%m.%Y") }}
+{% else %}\
+## [Unveröffentlicht]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }}\
+{% endfor %}
+{% endfor %}\n
+"""
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Neue Funktionen" },
+  { message = "^fix", group = "<!-- 1 -->Fehlerbehebungen" },
+  { message = "^docs", group = "<!-- 2 -->Dokumentation" },
+  { message = "^refactor", group = "<!-- 3 -->Umbau" },
+  { message = "^test", group = "<!-- 4 -->Tests" },
+  { message = "^ci", group = "<!-- 5 -->CI" },
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^chore", group = "<!-- 6 -->Wartung" },
+]
+filter_commits = false
+tag_pattern = "v[0-9].*"
+topo_order = false
+sort_commits = "oldest"

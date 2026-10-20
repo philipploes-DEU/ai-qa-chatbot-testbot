@@ -1,0 +1,229 @@
+import { describe, expect, it } from "vitest";
+
+import { failureMessages, failurePaths } from "../../tests/helpers/schema.js";
+import { TargetConfigSchema } from "./target-config.js";
+
+const dummyTarget = {
+  name: "beispiel-dummy",
+  adapter: "dummy",
+  dummy: {
+    responses: { Hallo: "Guten Tag, wie kann ich helfen?" },
+    fallback: "Dazu kann ich leider nichts sagen.",
+  },
+};
+
+const httpTarget = {
+  name: "kundenbot-staging",
+  adapter: "http",
+  endpoint: "https://staging.example.test/api/chat",
+  auth: {
+    type: "basic",
+    username: "${AIQA_TARGET_USER}",
+    password: "${AIQA_TARGET_PASSWORD}",
+  },
+  rateLimit: { requestsPerMinute: 30, concurrency: 2, backoff: "exponential", maxRetries: 3 },
+  timeouts: { requestMs: 15000, dialogMs: 120000 },
+  expectations: { maxLatencyMs: 8000 },
+  request: {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: '{"message": "{{input}}", "session": "{{session}}"}',
+    responsePath: "$.reply",
+  },
+  session: { mode: "header", key: "X-Session-Id" },
+};
+
+const playwrightTarget = {
+  name: "kundenbot-web",
+  adapter: "playwright",
+  endpoint: "https://staging.example.test/chat",
+  auth: { type: "basic", username: "${AIQA_TARGET_USER}", password: "${AIQA_TARGET_PASSWORD}" },
+  playwright: { spec: "specs/kundenbot-web.spec.yaml", headless: true, browser: "chromium" },
+};
+
+describe("TargetConfigSchema", () => {
+  it("accepts a dummy target and fills defaults", () => {
+    const parsed = TargetConfigSchema.parse(dummyTarget);
+
+    expect(parsed.auth).toEqual({ type: "none" });
+    expect(parsed.rateLimit).toEqual({
+      requestsPerMinute: 60,
+      concurrency: 1,
+      backoff: "exponential",
+      maxRetries: 3,
+    });
+    expect(parsed.timeouts).toEqual({ requestMs: 15000, dialogMs: 120000 });
+    expect(parsed.expectations.maxLatencyMs).toBeUndefined();
+    expect(parsed.dummy?.responses.Hallo).toBe("Guten Tag, wie kann ich helfen?");
+  });
+
+  it("accepts the http example from the briefing", () => {
+    const parsed = TargetConfigSchema.parse(httpTarget);
+    expect(parsed.adapter).toBe("http");
+    expect(parsed.request?.responsePath).toBe("$.reply");
+    expect(parsed.session?.key).toBe("X-Session-Id");
+  });
+
+  it("accepts the playwright example from the briefing", () => {
+    const parsed = TargetConfigSchema.parse(playwrightTarget);
+    expect(parsed.playwright?.browser).toBe("chromium");
+  });
+
+  it("accepts bearer and header auth with environment references", () => {
+    const bearer = TargetConfigSchema.safeParse({
+      ...httpTarget,
+      auth: { type: "bearer", token: "${AIQA_TARGET_TOKEN}" },
+    });
+    const header = TargetConfigSchema.safeParse({
+      ...httpTarget,
+      auth: { type: "header", name: "X-Api-Key", value: "${AIQA_TARGET_TOKEN}" },
+    });
+    expect(bearer.success).toBe(true);
+    expect(header.success).toBe(true);
+  });
+
+  it("accepts token auth for Supabase with defaults for paths, format and grant", () => {
+    const parsed = TargetConfigSchema.parse({
+      ...httpTarget,
+      auth: {
+        type: "token",
+        tokenEndpoint: "https://projekt.supabase.example/auth/v1/token?grant_type=password",
+        refreshEndpoint: "https://projekt.supabase.example/auth/v1/token?grant_type=refresh_token",
+        format: "json",
+        usernameField: "email",
+        username: "${AIQA_TARGET_EMAIL}",
+        password: "${AIQA_TARGET_PASSWORD}",
+        headers: { apikey: "${AIQA_SUPABASE_ANON_KEY}" },
+      },
+    });
+    expect(parsed.auth).toMatchObject({
+      type: "token",
+      grantType: "password",
+      passwordField: "password",
+      tokenPath: "$.access_token",
+      expiresInPath: "$.expires_in",
+      refreshTokenPath: "$.refresh_token",
+    });
+    const form = TargetConfigSchema.parse({
+      ...httpTarget,
+      auth: {
+        type: "token",
+        tokenEndpoint: "https://login.example.test/oauth/token",
+        username: "${AIQA_TARGET_USER}",
+        password: "${AIQA_TARGET_PASSWORD}",
+      },
+    });
+    expect(form.auth).toMatchObject({ format: "form", usernameField: "username", headers: {} });
+  });
+
+  it("rejects token auth with a literal password or for adapters without http client", () => {
+    const tokenAuth = {
+      type: "token",
+      tokenEndpoint: "https://login.example.test/oauth/token",
+      username: "${AIQA_TARGET_USER}",
+      password: "${AIQA_TARGET_PASSWORD}",
+    };
+    const literal = TargetConfigSchema.safeParse({
+      ...httpTarget,
+      auth: { ...tokenAuth, password: "geheim123" },
+    });
+    expect(failurePaths(literal)).toContain("auth.password");
+    const script = TargetConfigSchema.safeParse({
+      name: "skript",
+      adapter: "script",
+      endpoint: "node bot.js",
+      auth: tokenAuth,
+    });
+    expect(failurePaths(script)).toContain("auth");
+    expect(failureMessages(script).join(" ")).toMatch(/http und openai-compatible/);
+  });
+
+  it("rejects literal credentials instead of environment references", () => {
+    const result = TargetConfigSchema.safeParse({
+      ...httpTarget,
+      auth: { type: "basic", username: "${AIQA_TARGET_USER}", password: "geheim123" },
+    });
+    expect(failurePaths(result)).toContain("auth.password");
+    expect(failureMessages(result).join(" ")).toMatch(/Umgebungsvariable|environment variable/);
+  });
+
+  it("rejects an http target without request template", () => {
+    const { request: _request, ...withoutRequest } = httpTarget;
+    const result = TargetConfigSchema.safeParse(withoutRequest);
+    expect(failurePaths(result)).toContain("request");
+  });
+
+  it("rejects an http target without endpoint", () => {
+    const { endpoint: _endpoint, ...withoutEndpoint } = httpTarget;
+    const result = TargetConfigSchema.safeParse(withoutEndpoint);
+    expect(failurePaths(result)).toContain("endpoint");
+  });
+
+  it("rejects an endpoint that is not a url", () => {
+    const result = TargetConfigSchema.safeParse({ ...httpTarget, endpoint: "staging/api" });
+    expect(failurePaths(result)).toContain("endpoint");
+  });
+
+  it("rejects a session mode that needs a key without one", () => {
+    const result = TargetConfigSchema.safeParse({ ...httpTarget, session: { mode: "header" } });
+    expect(failurePaths(result)).toContain("session.key");
+  });
+
+  it("rejects a playwright target without playwright block", () => {
+    const { playwright: _playwright, ...withoutBlock } = playwrightTarget;
+    const result = TargetConfigSchema.safeParse(withoutBlock);
+    expect(failurePaths(result)).toContain("playwright");
+  });
+
+  it("rejects a request template on a non http adapter", () => {
+    const result = TargetConfigSchema.safeParse({ ...dummyTarget, request: httpTarget.request });
+    expect(failurePaths(result)).toContain("request");
+  });
+
+  it("rejects unknown adapters and unknown fields", () => {
+    expect(TargetConfigSchema.safeParse({ ...dummyTarget, adapter: "grpc" }).success).toBe(false);
+    expect(TargetConfigSchema.safeParse({ ...dummyTarget, retries: 3 }).success).toBe(false);
+  });
+});
+
+describe("TimeoutsSchema", () => {
+  it("rejects a dialog timeout shorter than the request timeout", () => {
+    const result = TargetConfigSchema.safeParse({
+      ...dummyTarget,
+      timeouts: { requestMs: 5000, dialogMs: 1000 },
+    });
+    expect(result.success).toBe(false);
+    expect(failurePaths(result)).toContain("timeouts.dialogMs");
+    expect(failureMessages(result).join(" ")).toContain("requestMs");
+  });
+});
+
+describe("openai block", () => {
+  const openAiTarget = {
+    name: "bot",
+    adapter: "openai-compatible",
+    endpoint: "http://localhost:4020/v1",
+    openai: { model: "gartenhelden-bot", systemPrompt: "Du bist knapp.", temperature: 0.2 },
+  };
+
+  it("accepts the openai block for the openai-compatible adapter", () => {
+    const parsed = TargetConfigSchema.parse(openAiTarget);
+    expect(parsed.openai).toEqual({
+      model: "gartenhelden-bot",
+      systemPrompt: "Du bist knapp.",
+      temperature: 0.2,
+    });
+  });
+
+  it("requires the openai block for the openai-compatible adapter", () => {
+    const result = TargetConfigSchema.safeParse({ ...openAiTarget, openai: undefined });
+    expect(result.success).toBe(false);
+    expect(failurePaths(result)).toContain("openai");
+  });
+
+  it("rejects the openai block for other adapters", () => {
+    const result = TargetConfigSchema.safeParse({ ...dummyTarget, openai: { model: "x" } });
+    expect(result.success).toBe(false);
+    expect(failurePaths(result)).toContain("openai");
+  });
+});

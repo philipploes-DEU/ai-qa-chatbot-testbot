@@ -1,0 +1,7 @@
+# pnpm settings. Only esbuild (used by tsx) may run its install script.
+allowBuilds:
+  esbuild: true
+
+# Packages must be at least one day old before they are installed (supply-chain policy).
+# Also pnpm 12 default; explicit so local installs and CI behave the same.
+minimumReleaseAge: 1440

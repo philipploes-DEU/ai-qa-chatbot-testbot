@@ -1,0 +1,10 @@
+name: fixture-web
+input:
+  selector: "#message"
+send:
+  method: enter
+response:
+  selector: ".answer"
+  wait:
+    type: stable
+    forMs: 500

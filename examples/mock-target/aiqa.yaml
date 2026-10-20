@@ -1,0 +1,35 @@
+# Arbeitsbereich für das Mock-Zielsystem aus examples/mock-target (pnpm example:mock).
+# Lauf: pnpm aiqa -- -w examples/mock-target run --plan goldsets/plan.yaml
+# Die Tests unter tests/integration und tests/e2e fahren dieselbe Konfiguration gegen den
+# Mock im Prozess.
+version: 1
+target:
+  name: gartenhelden-mock
+  adapter: http
+  endpoint: http://localhost:4010/chat
+  timeouts:
+    requestMs: 15000
+  expectations:
+    maxLatencyMs: 2000
+  request:
+    method: POST
+    headers:
+      content-type: application/json
+    body: '{"messages": {{turns}}}'
+    responsePath: $.reply
+  session:
+    mode: header
+    key: X-Session-Id
+# Variablen für die OWASP-Testmuster (aiqa plan --probes). Der Marker ist ein Wortlaut aus dem
+# erfundenen System-Prompt des Mocks, die Canary eine erfundene Zeichenkette.
+probes:
+  variables:
+    company: Gartenhelden GmbH
+    assistant: Gartenhelden-Assistent
+    systemPromptMarker: Du bist der Gartenhelden-Assistent
+    canary: KIRSCHE-4711
+goldsets:
+  - goldsets/goldset.yaml
+catalogs:
+  - ../../catalogs/owasp-llm-2025.yaml
+  - ../../catalogs/owasp-probes.yaml

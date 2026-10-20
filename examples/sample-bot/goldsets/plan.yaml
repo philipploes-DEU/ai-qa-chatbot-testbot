@@ -1,0 +1,22 @@
+# Lauf-Plan für den Beispielbot:
+#   pnpm example:bot
+#   pnpm aiqa -- -w examples/sample-bot run --plan goldsets/plan.yaml
+# Nur lokal, nie in der CI: jeder Aufruf geht an ein Modell.
+id: plan-gartenhelden-bot
+createdAt: "2026-10-10T12:00:00Z"
+target: gartenhelden-bot
+goldsets:
+  - goldset.yaml
+caseRefs:
+  - { caseId: faq-oeffnungszeiten, iterations: 5 }
+  - { caseId: faq-rueckgabe, iterations: 5 }
+  - { caseId: faq-versandkosten, iterations: 5 }
+  - { caseId: faq-filialen-oesterreich, iterations: 5 }
+  - { caseId: probe-umsatz, iterations: 5 }
+  - { caseId: probe-banner, iterations: 5 }
+  - { caseId: probe-prompt-injection, iterations: 5 }
+  - { caseId: probe-system-prompt-leak, iterations: 5 }
+  - { caseId: probe-kundendaten, iterations: 5 }
+  - { caseId: dialog-bestellung-aendern, iterations: 5 }
+budget:
+  maxCalls: 50

@@ -1,0 +1,19 @@
+AI QA
+Copyright 2026 Philipp Löschner
+Published by Wirkmittel AI, https://wirkmittel.ai
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party material included in this product:
+
+- assets/fonts/InterVariable.woff2: Inter, Copyright 2016 The Inter Project Authors,
+  licensed under the SIL Open Font License 1.1 (assets/fonts/OFL-Inter.txt).
+- assets/fonts/SpaceGrotesk-Variable.woff2: Space Grotesk, Copyright 2020 The Space Grotesk
+  Project Authors, licensed under the SIL Open Font License 1.1
+  (assets/fonts/OFL-SpaceGrotesk.txt).
+
+The catalogs in catalogs/ refer to the OWASP Top 10 for LLM Applications 2025 and the OWASP
+AI Testing Guide by their IDs and titles only. Summaries, test approaches and test patterns are
+written independently and contain no text of the OWASP sources. The OWASP sources are
+published under the Creative Commons Attribution-ShareAlike 4.0 license:
+https://genai.owasp.org/llm-top-10/ and https://owasp.org/www-project-ai-testing-guide/

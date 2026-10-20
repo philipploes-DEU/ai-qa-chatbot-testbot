@@ -1,0 +1,13 @@
+# Gitleaks configuration for AI QA.
+# Extends the default rule set. Allowlist entries exist only for test fixtures
+# whose keys are recognisably invented. Never allowlist real-looking values.
+
+title = "AI QA gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Invented keys in test fixtures carry the marker AIQAFAKE"
+regexTarget = "match"
+regexes = ['''AIQA_?FAKE''']

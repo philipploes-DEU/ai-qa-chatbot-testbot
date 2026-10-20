@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AI QA: Der Chatbot-Testbot">
+  <rect width="64" height="64" fill="#131122"/>
+  <path d="M15 14h36v30H25l-10 9zM20 19v20h26V19z" fill="#0a0a0a" fill-rule="evenodd" transform="translate(2 2)"/>
+  <path d="M15 14h36v30H25l-10 9zM20 19v20h26V19z" fill="#0EA5E9" fill-rule="evenodd"/>
+  <rect x="24" y="23" width="5" height="5" fill="#f5f5f5"/>
+  <rect x="33" y="23" width="5" height="5" fill="#f5f5f5"/>
+  <path d="M25 37l5 5 15-15" fill="none" stroke="#0a0a0a" stroke-width="9" stroke-linecap="square" transform="translate(1.5 1.5)"/>
+  <path d="M25 37l5 5 15-15" fill="none" stroke="#FB923C" stroke-width="5" stroke-linecap="square"/>
+</svg>

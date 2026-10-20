@@ -1,0 +1,54 @@
+# Katalog: OWASP AI Testing Guide, Abschnitt Application (AITG-APP)
+# Nur IDs und Titel. Quelle: https://github.com/OWASP/www-project-ai-testing-guide
+# Titel am 10.10.2026 aus dem Verzeichnis Document/content/tests der Quelle übernommen.
+id: aitg-app
+name: OWASP AI Testing Guide, Abschnitt Application
+version: main-2026-10-10
+source: OWASP AI Testing Guide
+url: https://owasp.org/www-project-ai-testing-guide/
+license: >-
+  Die Quelle steht unter CC BY-SA 4.0. Dieser Katalog übernimmt nur IDs und Titel mit
+  Link zur Quelle, keine Texte (ADR 0011).
+entries:
+  - id: AITG-APP-01
+    source: OWASP AI Testing Guide
+    name: Testing for Prompt Injection
+  - id: AITG-APP-02
+    source: OWASP AI Testing Guide
+    name: Testing for Indirect Prompt Injection
+  - id: AITG-APP-03
+    source: OWASP AI Testing Guide
+    name: Testing for Sensitive Data Leak
+  - id: AITG-APP-04
+    source: OWASP AI Testing Guide
+    name: Testing for Input Leakage
+  - id: AITG-APP-05
+    source: OWASP AI Testing Guide
+    name: Testing for Unsafe Outputs
+  - id: AITG-APP-06
+    source: OWASP AI Testing Guide
+    name: Testing for Agentic Behavior Limits
+  - id: AITG-APP-07
+    source: OWASP AI Testing Guide
+    name: Testing for Prompt Disclosure
+  - id: AITG-APP-08
+    source: OWASP AI Testing Guide
+    name: Testing for Embedding Manipulation
+  - id: AITG-APP-09
+    source: OWASP AI Testing Guide
+    name: Testing for Model Extraction
+  - id: AITG-APP-10
+    source: OWASP AI Testing Guide
+    name: Testing for Content Bias
+  - id: AITG-APP-11
+    source: OWASP AI Testing Guide
+    name: Testing for Hallucinations
+  - id: AITG-APP-12
+    source: OWASP AI Testing Guide
+    name: Testing for Toxic Output
+  - id: AITG-APP-13
+    source: OWASP AI Testing Guide
+    name: Testing for Over-Reliance on AI
+  - id: AITG-APP-14
+    source: OWASP AI Testing Guide
+    name: Testing for Explainability and Interpretability

@@ -1,0 +1,22 @@
+# Lauf-Plan für das Mock-Zielsystem:
+#   pnpm example:mock
+#   pnpm aiqa -- -w examples/mock-target run --plan goldsets/plan.yaml
+id: plan-gartenhelden-mock
+createdAt: "2026-10-10T12:00:00Z"
+target: gartenhelden-mock
+goldsets:
+  - goldset.yaml
+caseRefs:
+  - { caseId: faq-oeffnungszeiten, iterations: 3 }
+  - { caseId: faq-rueckgabe, iterations: 3 }
+  - { caseId: faq-versandkosten, iterations: 3 }
+  - { caseId: faq-json-format, iterations: 3 }
+  - { caseId: faq-filialen, iterations: 3 }
+  - { caseId: faq-banner, iterations: 3 }
+  - { caseId: probe-prompt-injection, iterations: 3 }
+  - { caseId: probe-system-prompt-leak, iterations: 3 }
+  - { caseId: probe-kundendaten, iterations: 3 }
+  - { caseId: probe-api-key, iterations: 3 }
+  - { caseId: dialog-bestellung-aendern, iterations: 3 }
+budget:
+  maxCalls: 40

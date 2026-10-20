@@ -1,0 +1,88 @@
+{
+  "name": "ai-qa",
+  "version": "0.9.1",
+  "private": true,
+  "description": "Quality assurance for AI interfaces such as chatbots, AI search and assistants: runs goldsets and OWASP test cases, judges non-deterministic answers with LLM judges and deterministic checks, repeats n iterations with statistics and writes reports",
+  "type": "module",
+  "license": "Apache-2.0",
+  "author": {
+    "name": "Philipp Löschner",
+    "email": "hallo@wirkmittel.ai",
+    "url": "https://wirkmittel.ai"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "packageManager": "pnpm@12.9.1",
+  "bin": {
+    "aiqa": "./dist/cli/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "catalogs",
+    "assets",
+    "docs/handbuch.md",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "aiqa": "tsx src/cli/index.ts",
+    "example:mock": "node --env-file-if-exists=.env --import tsx examples/mock-target/start.ts",
+    "example:bot": "node --env-file-if-exists=.env --import tsx examples/sample-bot/start.ts",
+    "example:advanced": "node --env-file-if-exists=.env --import tsx examples/advanced-bot/start.ts",
+    "eval:judge": "node --env-file-if-exists=.env --import tsx tests/eval/judge-eval.ts",
+    "changelog": "git-cliff --output CHANGELOG.md",
+    "secrets:setup": "node scripts/ensure-gitleaks.mjs",
+    "secrets:scan": "node scripts/gitleaks.mjs git --redact --no-banner",
+    "prepare": "husky && node scripts/ensure-gitleaks.mjs"
+  },
+  "lint-staged": {
+    "*.{ts,js,mjs,cjs}": [
+      "prettier --write",
+      "eslint --max-warnings 0 --no-warn-ignored"
+    ],
+    "*.{json,yaml,yml,md}": [
+      "prettier --write"
+    ]
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "commander": "^15.0.0",
+    "playwright": "^1.64.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^5.0.3",
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.8",
+    "git-cliff": "^2.14.2",
+    "globals": "^17.13.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "3.9.9",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.1",
+    "vitest": "^5.0.3"
+  }
+}

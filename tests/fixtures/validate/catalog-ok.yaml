@@ -1,0 +1,14 @@
+id: fixture-katalog
+name: Fixture Katalog
+version: "1"
+source: Test
+entries:
+  - id: TEST-01
+    source: Test
+    name: Erster Eintrag
+  - id: TEST-02
+    source: Test
+    name: Zweiter Eintrag
+    summary: Kurzfassung.
+    approach: Prüfansatz.
+    detectors: [mustContain]

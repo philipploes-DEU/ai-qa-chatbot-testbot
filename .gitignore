@@ -1,0 +1,31 @@
+# dependencies and build output
+node_modules/
+dist/
+coverage/
+
+# local tool binaries (gitleaks, installed by scripts/ensure-gitleaks.mjs)
+.tools/
+
+# run results and reports of the repo's own and the example workspaces are never committed
+/runs/
+/reports/
+/examples/*/runs/
+/examples/*/reports/
+
+# spikes install their own dependencies and write their results locally
+/spikes/*/node_modules/
+/spikes/*/results/
+
+# private workspaces with customer data stay local
+/workspaces/*
+!/workspaces/.gitkeep
+
+# secrets: only .env.example with empty placeholders is tracked
+.env
+.env.*
+!.env.example
+
+# editor and os noise
+*.log
+.DS_Store
+Thumbs.db

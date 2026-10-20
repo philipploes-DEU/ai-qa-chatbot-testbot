@@ -1,0 +1,43 @@
+# Zuordnung von promptfoo-Plugins und -Strategien zu OWASP-LLM-IDs für aiqa import promptfoo.
+# Stand der Plugin-IDs: promptfoo 0.120.0 (ADR 0008). Ein Muster mit * am Ende passt auf jeden
+# Namen mit diesem Anfang. Die Plugin-Zuordnung hat Vorrang, die Strategie greift nur für
+# Plugins ohne eigene Zuordnung. Bei neuen promptfoo-Versionen nachziehen.
+id: promptfoo-mapping
+version: "2026-10-11"
+promptfooVersion: 0.120.0
+source: promptfoo, Plugin- und Strategie-IDs aus der Dokumentation der Red-Team-Plugins
+license: Apache-2.0. Nur Bezeichner von promptfoo (MIT) und OWASP-IDs, keine Texte.
+plugins:
+  - pattern: prompt-extraction
+    owasp: LLM07
+  - pattern: pii*
+    owasp: LLM02
+  - pattern: harmful:privacy
+    owasp: LLM02
+  - pattern: hijacking
+    owasp: LLM06
+  - pattern: excessive-agency
+    owasp: LLM06
+  - pattern: rbac
+    owasp: LLM06
+  - pattern: indirect-prompt-injection
+    owasp: LLM08
+  - pattern: bola
+    owasp: LLM08
+  - pattern: bfla
+    owasp: LLM08
+  - pattern: hallucination
+    owasp: LLM09
+  - pattern: overreliance
+    owasp: LLM09
+  - pattern: divergent-repetition
+    owasp: LLM10
+strategies:
+  - pattern: jailbreak*
+    owasp: LLM01
+  - pattern: prompt-injection
+    owasp: LLM01
+  - pattern: crescendo
+    owasp: LLM01
+  - pattern: goat
+    owasp: LLM01

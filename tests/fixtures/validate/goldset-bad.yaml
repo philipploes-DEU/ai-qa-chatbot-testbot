@@ -1,0 +1,6 @@
+id: fixture-kaputt
+name: Kaputt, ohne owner
+cases:
+  - id: fall-a
+    kind: qa
+    input: Frage A

@@ -1,0 +1,10 @@
+version: 1
+target:
+  name: fixture-dummy
+  adapter: dummy
+  dummy:
+    responses:
+      Frage A: Antwort A
+    fallback: Keine Ahnung.
+goldsets:
+  - goldset-ok.yaml

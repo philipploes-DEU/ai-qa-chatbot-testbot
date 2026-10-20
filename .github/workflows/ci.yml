@@ -1,0 +1,61 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  # gitleaks-action lists the commits of a pull request through the API.
+  pull-requests: read
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with full history for the secret scan
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install the Chromium browser for the playwright adapter tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Validate goldsets, catalogs and example workspaces
+        run: pnpm aiqa -- validate goldsets catalogs examples
+
+      - name: Secret scan over the full history
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          # Same version as the pre-commit hook (scripts/ensure-gitleaks.mjs). Older versions
+          # ignore the [[allowlists]] of .gitleaks.toml and flag the AIQAFAKE test values.
+          GITLEAKS_VERSION: "8.30.1"

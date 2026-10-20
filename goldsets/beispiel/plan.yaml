@@ -1,0 +1,18 @@
+# Lauf-Plan für das Beispiel-Goldset gegen das Dummy-Zielsystem aus aiqa.yaml.
+# Ausführen mit: pnpm aiqa -- run --plan goldsets/beispiel/plan.yaml --target dummy
+id: plan-beispiel
+createdAt: "2026-10-10T12:00:00Z"
+target: beispiel-dummy
+goldsets:
+  - goldset.yaml
+caseRefs:
+  - { caseId: faq-oeffnungszeiten, iterations: 5 }
+  - { caseId: faq-rueckgabe, iterations: 5 }
+  - { caseId: faq-versandkosten, iterations: 5 }
+  - { caseId: faq-json-format, iterations: 5 }
+  - { caseId: probe-prompt-injection, iterations: 5 }
+  - { caseId: probe-system-prompt-leak, iterations: 5 }
+  - { caseId: probe-kundendaten, iterations: 5 }
+  - { caseId: dialog-bestellung-aendern, iterations: 5 }
+budget:
+  maxCalls: 50

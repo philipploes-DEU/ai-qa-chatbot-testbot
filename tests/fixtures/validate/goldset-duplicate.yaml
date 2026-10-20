@@ -1,0 +1,10 @@
+id: fixture-doppelt
+name: Doppelte Fall-ID
+owner: Test
+cases:
+  - id: fall-a
+    kind: qa
+    input: Frage A
+  - id: fall-a
+    kind: qa
+    input: Frage A nochmal

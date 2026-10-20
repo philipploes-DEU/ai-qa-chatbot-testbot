@@ -1,0 +1,117 @@
+# Katalog: OWASP Top 10 for LLM Applications 2025
+# Nur IDs, Titel und Kurzfassungen in eigenen Worten. Kein OWASP-Volltext.
+# Quelle: https://genai.owasp.org/llm-top-10/ (Titel am 10.10.2026 abgeglichen)
+id: owasp-llm-2025
+name: OWASP Top 10 for LLM Applications 2025
+version: "2025"
+source: OWASP GenAI Security Project
+url: https://genai.owasp.org/llm-top-10/
+license: >-
+  Die Website der Quelle nennt CC BY-SA 4.0 als Lizenz für ihre Inhalte. Dieser Katalog
+  übernimmt nur IDs und Titel und beschreibt Risiko und Prüfansatz in eigenen Worten.
+  Keine Originaltexte (ADR 0011).
+entries:
+  - id: LLM01
+    source: OWASP Top 10 for LLM Applications 2025
+    name: Prompt Injection
+    summary: >-
+      Eingaben verändern das Verhalten des Modells gegen die Absicht des Betreibers. Direkt
+      über die Nutzereingabe oder indirekt über Dokumente, Webseiten und Werkzeugausgaben,
+      die das Modell verarbeitet.
+    approach: >-
+      Black-Box prüfbar. Probes mit Anweisungen, die Systemregeln aushebeln sollen
+      (Rollenwechsel, Aufforderung alle Regeln zu ignorieren, Anweisungen in Zitaten oder
+      Daten). Erwartung ist eine Verweigerung oder unverändertes Verhalten.
+    detectors: [refusal, mustNotContain, judge]
+  - id: LLM02
+    source: OWASP Top 10 for LLM Applications 2025
+    name: Sensitive Information Disclosure
+    summary: >-
+      Das System gibt persönliche Daten, Geschäftsgeheimnisse, Zugangsdaten oder Inhalte
+      anderer Nutzer preis.
+    approach: >-
+      Black-Box prüfbar, soweit bekannt ist, was nicht nach außen darf. Probes fragen nach
+      internen Daten, anderen Kunden oder Mitarbeitern. Canary-Zeichenketten im Kontext des
+      Zielsystems machen Lecks messbar.
+    detectors: [leak, mustNotContain, judge]
+  - id: LLM03
+    source: OWASP Top 10 for LLM Applications 2025
+    name: Supply Chain
+    summary: >-
+      Risiken aus fremden Modellen, Datensätzen, Plugins und Abhängigkeiten, die in das
+      System einfließen.
+    approach: >-
+      Black-Box kaum prüfbar. Prüfung über Herkunftsnachweise, Abhängigkeitslisten und
+      Signaturen beim Betreiber. Im Katalog als Hinweis geführt, nicht automatisiert.
+    detectors: []
+  - id: LLM04
+    source: OWASP Top 10 for LLM Applications 2025
+    name: Data and Model Poisoning
+    summary: >-
+      Manipulierte Trainings-, Feinabstimmungs- oder Einbettungsdaten verändern das
+      Verhalten des Modells, oft erst bei bestimmten Auslösern.
+    approach: >-
+      Black-Box nur indirekt prüfbar über Verhaltensauffälligkeiten bei Auslösewörtern und
+      Vergleich mit einer Referenzantwort. Hauptsächlich eine Frage der Datenherkunft.
+    detectors: [judge]
+  - id: LLM05
+    source: OWASP Top 10 for LLM Applications 2025
+    name: Improper Output Handling
+    summary: >-
+      Ausgaben des Modells werden ungeprüft weiterverarbeitet, zum Beispiel als HTML, SQL oder
+      Shell-Befehl, und öffnen damit klassische Angriffswege.
+    approach: >-
+      Black-Box prüfbar. Probes, die Markup oder Code in die Antwort bringen sollen.
+      Erwartung ist eine bereinigte oder strukturierte Antwort ohne ausführbare Teile.
+    detectors: [mustNotMatch, schema]
+  - id: LLM06
+    source: OWASP Top 10 for LLM Applications 2025
+    name: Excessive Agency
+    summary: >-
+      Das System hat mehr Rechte, Werkzeuge oder Autonomie als für seine Aufgabe nötig und
+      führt Aktionen aus, die niemand bestätigt hat.
+    approach: >-
+      Black-Box prüfbar, wenn das Zielsystem Aktionen auslösen kann. Probes fordern Aktionen
+      (stornieren, löschen, überweisen). Erwartung ist Rückfrage oder Verweigerung.
+    detectors: [refusal, judge]
+  - id: LLM07
+    source: OWASP Top 10 for LLM Applications 2025
+    name: System Prompt Leakage
+    summary: >-
+      Systemanweisungen oder darin enthaltene Regeln, Rollen und Geheimnisse werden
+      preisgegeben.
+    approach: >-
+      Black-Box prüfbar. Probes bitten um Wiederholung oder Zusammenfassung der Anweisungen.
+      Eine Canary-Zeichenkette im System-Prompt des Zielsystems macht das Leck messbar.
+    detectors: [mustNotContain, leak]
+  - id: LLM08
+    source: OWASP Top 10 for LLM Applications 2025
+    name: Vector and Embedding Weaknesses
+    summary: >-
+      Schwächen in Retrieval und Einbettungen. Zugriff auf Dokumente, die der Rolle nicht
+      zustehen, vergiftete Inhalte in der Wissensbasis, Rückschlüsse aus Einbettungen.
+    approach: >-
+      Black-Box teilweise prüfbar. Fragen nach Inhalten, die der Nutzerrolle nicht zustehen,
+      und Vergleich der Antworten über Rollen hinweg.
+    detectors: [mustNotContain, judge]
+  - id: LLM09
+    source: OWASP Top 10 for LLM Applications 2025
+    name: Misinformation
+    summary: >-
+      Das System liefert falsche, erfundene oder irreführende Angaben, die glaubwürdig
+      klingen.
+    approach: >-
+      Black-Box prüfbar mit Goldset. Referenzantworten, Pflichtangaben über mustContain,
+      Judge mit Rubrik zur Faktentreue. Wiederholung über n Iterationen zeigt die Streuung.
+    detectors: [mustContain, judge]
+  - id: LLM10
+    source: OWASP Top 10 for LLM Applications 2025
+    name: Unbounded Consumption
+    summary: >-
+      Ressourcenverbrauch ohne Grenze. Lange Eingaben, Schleifen oder viele Anfragen treiben
+      Kosten und Latenz, bis zur Nichtverfügbarkeit.
+    approach: >-
+      Black-Box prüfbar mit Vorsicht und nur mit Freigabe des Betreibers. Lange Eingaben,
+      Wiederholungen. Erwartung ist Begrenzung durch das Zielsystem. Die Latenz-Erwartung
+      erzeugt ein Urteil, der Timeout einen Fehler.
+    detectors: [latency]

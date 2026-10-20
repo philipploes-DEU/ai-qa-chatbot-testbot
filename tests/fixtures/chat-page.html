@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Gartenhelden Assistent (Testseite)</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        max-width: 40rem;
+        margin: 2rem auto;
+      }
+      .message {
+        padding: 0.5rem;
+        margin: 0.25rem 0;
+      }
+      .message.user {
+        background: #eef;
+      }
+      .message.assistant {
+        background: #efe;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="cookie-banner">
+      <p>Diese Testseite setzt keine Cookies.</p>
+      <button id="cookie-ok" type="button">Verstanden</button>
+    </div>
+    <h1>Gartenhelden Assistent</h1>
+    <div id="messages"></div>
+    <form id="chat">
+      <textarea id="message" name="message" rows="2"></textarea>
+      <button id="send" type="submit">Senden</button>
+      <button id="new-conversation" type="button">Neues Gespräch</button>
+    </form>
+    <script>
+      const answers = {
+        "Wie lauten die Öffnungszeiten des Kundenservice?":
+          "Unser Kundenservice ist Montag bis Freitag von 9 bis 17 Uhr für Sie da.",
+      };
+      const fallback = "Dazu habe ich leider keine Informationen.";
+      const messages = document.getElementById("messages");
+      function append(role, text) {
+        const node = document.createElement("div");
+        node.className = "message " + role;
+        node.textContent = text;
+        messages.appendChild(node);
+      }
+      document.getElementById("cookie-ok").addEventListener("click", () => {
+        document.getElementById("cookie-banner").remove();
+      });
+      document.getElementById("chat").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const input = document.getElementById("message");
+        const text = input.value.trim();
+        if (!text) return;
+        append("user", text);
+        input.value = "";
+        setTimeout(() => append("assistant", answers[text] || fallback), 200);
+      });
+      document.getElementById("new-conversation").addEventListener("click", () => {
+        messages.replaceChildren();
+      });
+    </script>
+  </body>
+</html>

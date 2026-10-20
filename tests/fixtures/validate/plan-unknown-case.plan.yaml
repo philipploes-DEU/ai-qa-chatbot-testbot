@@ -1,0 +1,9 @@
+id: fixture-plan-unbekannt
+createdAt: "2026-10-10T12:00:00Z"
+target: fixture-dummy
+goldsets:
+  - goldset-ok.yaml
+caseRefs:
+  - { caseId: fall-z, iterations: 1 }
+budget:
+  maxCalls: 10

@@ -163,6 +163,60 @@ describe("mock target", () => {
     });
   });
 
+  describe("streamed routes (issue #106)", () => {
+    async function ndjson(body: Record<string, unknown>) {
+      const response = await fetch(`${target.url}/chat/ndjson`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const lines = (await response.text())
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      return { response, lines };
+    }
+
+    it("ndjson: answers with a thread event and a final event and keeps the thread", async () => {
+      const first = await ndjson({ message: "Ich heiße Jonas." });
+      expect(first.response.status).toBe(200);
+      expect(first.response.headers.get("content-type")).toBe("application/x-ndjson");
+      expect(first.lines[0]).toMatchObject({ type: "thread" });
+      const threadId = first.lines[0]?.threadId;
+      expect(typeof threadId).toBe("string");
+      expect(first.lines[1]).toEqual({ type: "final", reply: "Freut mich, Jonas." });
+
+      const second = await ndjson({ message: "Wie heiße ich?", threadId });
+      expect(second.lines[0]).toEqual({ type: "thread", threadId });
+      expect(second.lines[1]).toEqual({ type: "final", reply: "Du heißt Jonas." });
+
+      const unknown = await ndjson({ message: "Wie heiße ich?", threadId: "gibt-es-nicht" });
+      expect(unknown.lines[0]?.threadId).not.toBe("gibt-es-nicht");
+      expect(String(unknown.lines[1]?.reply)).toContain("noch nicht gesagt");
+    });
+
+    it("sse: streams the answer as delta events and ends with [DONE]", async () => {
+      const response = await fetch(`${target.url}/chat/sse`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Wie lauten die Öffnungszeiten des Kundenservice?" }),
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("text/event-stream");
+      const text = await response.text();
+      expect(text).toContain('event: delta\ndata: {"type":"delta","text":"Unser "}\n\n');
+      expect(text.trimEnd().endsWith("data: [DONE]")).toBe(true);
+      const joined = [...text.matchAll(/^data: (\{.*\})$/gm)]
+        .map((match) => JSON.parse(match[1] ?? "") as { type: string; text?: string })
+        .filter((event) => event.type === "delta")
+        .map((event) => event.text ?? "")
+        .join("");
+      expect(joined).toBe(
+        "Unser Kundenservice ist Montag bis Freitag von 9 bis 17 Uhr für Sie da.",
+      );
+    });
+  });
+
   describe("sessions over the X-Session-Id header", () => {
     it("opens a session, remembers the name within it and forgets it after closing", async () => {
       const opened = await fetch(`${target.url}/session`, { method: "POST" });

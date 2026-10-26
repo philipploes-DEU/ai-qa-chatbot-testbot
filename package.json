@@ -1,6 +1,6 @@
 {
   "name": "ai-qa",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "private": true,
   "description": "Quality assurance for AI interfaces such as chatbots, AI search and assistants: runs goldsets and OWASP test cases, judges non-deterministic answers with LLM judges and deterministic checks, repeats n iterations with statistics and writes reports",
   "type": "module",

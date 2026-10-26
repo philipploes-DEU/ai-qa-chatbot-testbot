@@ -3,6 +3,17 @@
 Alle nennenswerten Änderungen an AI QA. Erzeugt aus Conventional Commits mit git-cliff.
 Issue-Nummern beziehen sich auf das private Entwicklungs-Repository (ADR 0023).
 
+## [0.10.0] vom 26.10.2026
+
+### Neue Funktionen
+
+- **report:** List question, expected and actual answer per case (#107) (#109)
+- **adapters:** Read streamed answers as NDJSON or Server-Sent Events in the http adapter (#106) (#110)
+
+### Dokumentation
+
+- **readme:** Name the public display name AI QA: Der Chatbot-Testbot (#105) (#108)
+
 ## [0.9.1] vom 20.10.2026
 
 ### Dokumentation

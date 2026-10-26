@@ -1,4 +1,5 @@
 import type { RunCalibration } from "../domain/calibration.js";
+import type { Turn } from "../domain/common.js";
 import type { Finding } from "../domain/finding.js";
 import type { BindingFile } from "../domain/fixtures.js";
 import type { Iteration } from "../domain/iteration.js";
@@ -92,9 +93,46 @@ export interface FailureSample {
   index: number;
   /** HTTP status of the answer, when known (issue #79). */
   status?: number;
+  /** The user turns as sent, in order, shortened (issue #107). */
+  question: string[];
   response: string;
   checks: FailedCheck[];
   judgeReasoning?: string;
+}
+
+/** The outcome of a case over its iterations, one word for the reader (issue #107). */
+export type ExchangeOutcome =
+  "passed" | "failed" | "error" | "notExecuted" | "unresolved" | "noVerdict";
+
+/**
+ * Question, expected answer and the target's answer of one case (issue #107). Texts are
+ * shortened to SAMPLE_RESPONSE_LENGTH. The question is the one sent, so it carries the values
+ * of {{fixtures.name}} (ADR 0022).
+ */
+export interface CaseExchange {
+  caseId: string;
+  kind?: TestCase["kind"];
+  draft: boolean;
+  outcome: ExchangeOutcome;
+  iterations: number;
+  /** Iterations with a verdict and how many of them passed. */
+  judged: number;
+  passes: number;
+  /** The user turns in order; a dialog lists every user turn. Empty when nothing is known. */
+  question: string[];
+  /**
+   * The reference answer, else the checks of the case in words, else the rubric criteria.
+   * Empty when the case expects nothing, null when the goldset was not loaded.
+   */
+  expected: string[] | null;
+  /** The iteration whose answer is shown: the first failed, else the first. null when none ran. */
+  index: number | null;
+  /** The target's answer of that iteration; null when the call failed or none ran. */
+  answer: string | null;
+  /** The error of that iteration when the call failed, for example timeout. */
+  error?: string;
+  /** Whether the answers differ in wording between the iterations; null below two. */
+  varies: boolean | null;
 }
 
 /** Failure rate of the judged iterations of all cases that share a category. */
@@ -131,6 +169,8 @@ export interface ReportModel {
   calibrations: RunCalibration[];
   /** Up to SAMPLE_LIMIT failed iterations, those with a failing judge verdict first. */
   samples: FailureSample[];
+  /** Question, expected and actual answer per case, cases not sent last (issue #107). */
+  exchanges: CaseExchange[];
   /** Earlier runs and this one, oldest first. */
   trend: TrendPoint[];
   /** Findings a human confirmed. Hypotheses of the analysis agent never reach a report. */
@@ -197,6 +237,60 @@ export const UNCATEGORIZED = "ohne Kategorie";
 export const SAMPLE_LIMIT = 5;
 export const SAMPLE_RESPONSE_LENGTH = 600;
 
+/** A text shortened for a report, with a marker where it was cut. */
+export function shorten(text: string, limit = SAMPLE_RESPONSE_LENGTH): string {
+  return text.length > limit ? `${text.slice(0, limit)} [...]` : text;
+}
+
+/** The user turns of a request, shortened, as the question a reader sees. */
+function userTurns(turns: readonly Turn[]): string[] {
+  return turns.filter((turn) => turn.role === "user").map((turn) => shorten(turn.content));
+}
+
+/** The question of a case that was not sent, from the goldset, with its placeholders. */
+function scriptedQuestion(testCase: TestCase | undefined): string[] {
+  if (testCase === undefined) return [];
+  return typeof testCase.input === "string" ? [shorten(testCase.input)] : userTurns(testCase.input);
+}
+
+function quoted(items: readonly string[]): string {
+  return items.map((item) => `"${item}"`).join(", ");
+}
+
+/**
+ * The expected answer in words: the reference answer, else the checks of the case, else the
+ * rubric criteria (issue #107). null without case data, empty when the case expects nothing.
+ */
+export function expectedOf(testCase: TestCase | undefined): string[] | null {
+  if (testCase === undefined) return null;
+  const { expected, rubric } = testCase;
+  if (expected.answer !== undefined) return [shorten(expected.answer)];
+  const lines: string[] = [];
+  if (expected.mustContain.length > 0) {
+    lines.push(`muss enthalten: ${quoted(expected.mustContain)}`);
+  }
+  if (expected.mustNotContain.length > 0) {
+    lines.push(`darf nicht enthalten: ${quoted(expected.mustNotContain)}`);
+  }
+  if (expected.mustNotClaim.length > 0) {
+    lines.push(`darf nicht behaupten: ${quoted(expected.mustNotClaim)}`);
+  }
+  if (expected.mustMatch.length > 0) {
+    lines.push(`muss den Mustern entsprechen: ${expected.mustMatch.join(", ")}`);
+  }
+  if (expected.mustNotMatch.length > 0) {
+    lines.push(`darf den Mustern nicht entsprechen: ${expected.mustNotMatch.join(", ")}`);
+  }
+  if (expected.schema !== undefined) lines.push("muss dem JSON-Schema des Falls entsprechen");
+  if (expected.refusal === true) lines.push("Verweigerung erwartet");
+  if (expected.refusal === false) lines.push("keine Verweigerung erwartet");
+  if (expected.status !== undefined) {
+    lines.push(`HTTP-Status ${String(expected.status)} erwartet`);
+  }
+  if (lines.length > 0) return lines;
+  return rubric.map((criterion) => `${criterion.name}: ${criterion.description}`);
+}
+
 function sampleFailures(input: ReportInput, verdicts: readonly Verdict[]): FailureSample[] {
   const drafts = new Set(input.run.draftCases ?? []);
   const candidates: (FailureSample & { judged: boolean })[] = [];
@@ -208,15 +302,12 @@ function sampleFailures(input: ReportInput, verdicts: readonly Verdict[]): Failu
     const failing = own.filter((verdict) => !verdict.pass);
     if (failing.length === 0) continue;
     const judge = failing.find((verdict) => verdict.source === "judge");
-    const response =
-      iteration.response.length > SAMPLE_RESPONSE_LENGTH
-        ? `${iteration.response.slice(0, SAMPLE_RESPONSE_LENGTH)} [...]`
-        : iteration.response;
     candidates.push({
       caseId: iteration.caseId,
       index: iteration.index,
       ...(iteration.status !== undefined ? { status: iteration.status } : {}),
-      response,
+      question: userTurns(iteration.request),
+      response: shorten(iteration.response),
       checks: failing.flatMap((verdict) =>
         verdict.criteria
           .filter((criterion) => !criterion.pass)
@@ -441,6 +532,71 @@ function metadata(
   };
 }
 
+/** The outcome of a case in one word, from the figures of its report row. */
+function outcomeOf(entry: CaseReport): ExchangeOutcome {
+  if (entry.iterations > 0 && entry.notExecuted === entry.iterations) return "notExecuted";
+  if (entry.iterations > 0 && entry.errors + entry.notExecuted === entry.iterations) return "error";
+  if (entry.summary === null) return "noVerdict";
+  return entry.summary.passes === entry.summary.n ? "passed" : "failed";
+}
+
+/**
+ * Question, expected and actual answer per case (issue #107): the cases that ran in order of
+ * the run, with the answer of the first failed iteration, else the first; then the cases not
+ * sent because a placeholder had no value, with the question from the goldset.
+ */
+function buildExchanges(
+  input: ReportInput,
+  cases: readonly CaseReport[],
+  grouped: ReadonlyMap<string, readonly Iteration[]>,
+  verdicts: readonly Verdict[],
+): CaseExchange[] {
+  const failed = new Set(verdicts.filter((verdict) => !verdict.pass).map(refOf));
+  const drafts = new Set(input.run.draftCases ?? []);
+  const ran = cases.map((entry): CaseExchange => {
+    const iterations = [...(grouped.get(entry.caseId) ?? [])].sort((a, b) => a.index - b.index);
+    const shown = iterations.find((iteration) => failed.has(refOf(iteration))) ?? iterations[0];
+    const testCase = input.cases?.get(entry.caseId);
+    return {
+      caseId: entry.caseId,
+      ...(entry.kind !== undefined ? { kind: entry.kind } : {}),
+      draft: entry.draft,
+      outcome: outcomeOf(entry),
+      iterations: entry.iterations,
+      judged: entry.summary?.n ?? 0,
+      passes: entry.summary?.passes ?? 0,
+      question: shown === undefined ? scriptedQuestion(testCase) : userTurns(shown.request),
+      expected: expectedOf(testCase),
+      index: shown?.index ?? null,
+      answer:
+        shown?.response === undefined || shown.response === null ? null : shorten(shown.response),
+      ...(shown?.error !== undefined ? { error: shown.error } : {}),
+      varies:
+        iterations.length < 2
+          ? null
+          : new Set(iterations.map((iteration) => iteration.response)).size > 1,
+    };
+  });
+  const unresolved = (input.run.unresolvedCases ?? []).map((entry): CaseExchange => {
+    const testCase = input.cases?.get(entry.caseId);
+    return {
+      caseId: entry.caseId,
+      ...(testCase !== undefined ? { kind: testCase.kind } : {}),
+      draft: drafts.has(entry.caseId),
+      outcome: "unresolved",
+      iterations: 0,
+      judged: 0,
+      passes: 0,
+      question: scriptedQuestion(testCase),
+      expected: expectedOf(testCase),
+      index: null,
+      answer: null,
+      varies: null,
+    };
+  });
+  return [...ran, ...unresolved];
+}
+
 /** Pure aggregation of a run into the numbers and lists a report shows. */
 export function buildReportModel(input: ReportInput): ReportModel {
   const drafts = new Set(input.run.draftCases ?? []);
@@ -539,6 +695,7 @@ export function buildReportModel(input: ReportInput): ReportModel {
     categories: buildCategories(cases, outcomes),
     calibrations: input.run.calibrations ?? [],
     samples: sampleFailures(input, verdicts),
+    exchanges: buildExchanges(input, cases, grouped, verdicts),
     trend: [
       ...(input.history ?? []).filter((point) => point.runId !== input.run.id),
       trendPoint(input.run, input.verdicts, true, {

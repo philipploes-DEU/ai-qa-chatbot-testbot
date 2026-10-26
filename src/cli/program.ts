@@ -280,7 +280,10 @@ export function createProgram(baseIo: CliIo, state: CliState): Command {
     .option("--templates <datei>", "promptfoo-cases: eigene Vorlagen je Plugin")
     .option("--id <id>", "promptfoo-cases: ID des Goldsets, das geschrieben wird")
     .option("--question <text>", "curl: die Frage, wie sie in der Oberfläche gestellt wurde")
-    .option("--response <datei>", "curl: gespeicherte Antwort (JSON) für den Antwortpfad")
+    .option(
+      "--response <datei>",
+      "curl: gespeicherte Antwort (JSON, NDJSON oder Server-Sent Events) für den Antwortpfad",
+    )
     .option("--call", "curl: ein Testaufruf mit dem kopierten Aufruf für den Antwortpfad")
     .option("--apply", "curl: ersetzt den target-Block der aiqa.yaml durch den Entwurf")
     .option("--name <name>", "curl: Name des Zielsystems")

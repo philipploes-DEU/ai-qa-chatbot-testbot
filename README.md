@@ -1,19 +1,21 @@
-# AI QA
+# AI QA: Der Chatbot-Testbot
 
-Prüfwerkzeug für KI-Schnittstellen, zum Beispiel Chatbots, KI-Suche oder Assistenten. AI QA fährt
-Goldsets und OWASP-Testfälle gegen die Schnittstelle, bewertet die nicht-deterministischen Antworten
-mit LLM-Judges nach Rubrik, ergänzt um deterministische Checks, sichert Fehlerquoten über mehrere
-Iterationen statistisch ab und erzeugt Reports.
+AI QA: Der Chatbot-Testbot ist ein Prüfwerkzeug für KI-Schnittstellen, zum Beispiel Chatbots,
+KI-Suche oder Assistenten. AI QA fährt Goldsets und OWASP-Testfälle gegen die Schnittstelle,
+bewertet die nicht-deterministischen Antworten mit LLM-Judges nach Rubrik, ergänzt um
+deterministische Checks, sichert Fehlerquoten über mehrere Iterationen statistisch ab und erzeugt
+Reports.
 
-Status: Version 0.9.1. Adapter für HTTP, OpenAI-kompatible Schnittstellen, Browser und lokale
-Kommandos, Login mit kurzlebigen Tokens, Einrichtung aus einem cURL-Aufruf, Variablen je Fall,
-Platzhalter mit Werten aus Datenquellen, erwarteter HTTP-Status, Folgeaufrufe im Dialog, Judge
-mit Kalibrierung und Quelldokumenten, der Ablehnungen des Judge-Modells erkennt, 43
-OWASP-Testmuster mit Ködern, Vergleich und Gates,
-Markdown- und HTML-Report mit bestätigten und verworfenen Befunden, Übergabe-Report über mehrere
-Läufe, sauberer Abbruch am Tageslimit des Zielsystems, Planungs- und Analyseagent,
-promptfoo-Import, JUnit-XML für GitHub, eine lokale Oberfläche und ein Einrichtungs-Skill für
-Claude Code. Die Releases erscheinen öffentlich unter
+Status: Version 0.10.0. Adapter für HTTP mit JSON und gestreamten Antworten (NDJSON,
+Server-Sent Events), OpenAI-kompatible Schnittstellen, Browser und lokale Kommandos, Login mit
+kurzlebigen Tokens, Einrichtung aus einem cURL-Aufruf, Variablen je Fall, Platzhalter mit Werten
+aus Datenquellen, erwarteter HTTP-Status, Folgeaufrufe im Dialog, Judge mit Kalibrierung und
+Quelldokumenten, der Ablehnungen des Judge-Modells erkennt, 43 OWASP-Testmuster mit Ködern,
+Vergleich und Gates, Markdown- und HTML-Report mit bestätigten und verworfenen Befunden sowie
+Frage, Soll und Antwort je Fall, Übergabe-Report über mehrere Läufe, sauberer Abbruch am
+Tageslimit des Zielsystems, Planungs- und Analyseagent, promptfoo-Import, JUnit-XML für GitHub,
+eine lokale Oberfläche und ein Einrichtungs-Skill für Claude Code. Die Releases erscheinen
+öffentlich unter
 https://github.com/philipploes-DEU/ai-qa-chatbot-testbot, entwickelt wird in einem privaten
 Repository ([ADR 0023](docs/adr/0023-oeffentliches-release-repository.md)).
 
@@ -161,7 +163,8 @@ einem Judge (Abschnitt 5) und den OWASP-Proben (Abschnitt 6).
 ## 4. Zielsystem anbinden
 
 Fünf Adapter gibt es: `dummy` antwortet aus einer Tabelle ohne Netzwerk, `http` spricht jede
-Chat-Schnittstelle mit JSON-Antwort über ein Request-Template an, `openai-compatible` spricht
+Chat-Schnittstelle mit JSON-Antwort oder gestreamter Antwort (NDJSON, Server-Sent Events) über
+ein Request-Template an, `openai-compatible` spricht
 das Chat-Completions-Format von OpenAI, das eigene Gateways, lokale Modelle über Ollama und
 Hosting-Anbieter verstehen, `playwright` bedient die Web-Oberfläche eines Bots wie ein Nutzer,
 und `script` ruft ein lokales Kommando auf, der Ausweichweg für alles ohne erreichbare
@@ -210,6 +213,10 @@ pnpm aiqa -- -w workspaces/mein-bot import curl --file anfrage.txt --question "W
 - Den Antwortpfad schlägt der Import aus einer gespeicherten Antwort vor (`--response
 antwort.json`) oder aus einem Testaufruf mit dem kopierten Aufruf (`--call`). Ohne beides steht
   dort `$.answer` mit Hinweis.
+- Streamt das Zielsystem (`Content-Type` `application/x-ndjson` oder `text/event-stream`, sonst
+  erkannt an der Form), setzt der Import `responseFormat`, einen Ereignisfilter und den
+  Antwortpfad in den Entwurf und nennt das Ereignis, das eine Thread- oder Sitzungs-ID trägt
+  (Abschnitt "Gestreamte Antworten" unten).
 - Der Entwurf landet in `aiqa.target-entwurf.yaml` neben der `aiqa.yaml`. Erst `--apply` ersetzt
   den target-Block. Danach `aiqa validate`.
 - Die kopierte Datei enthält Zugangsdaten. Lösche sie nach dem Import.
@@ -238,9 +245,9 @@ target:
 Platzhalter im Body: `{{input}}` ist die letzte Nutzernachricht, `{{turns}}` der ganze Verlauf
 als JSON-Liste aus `role` und `content`, `{{session}}` die Sitzung. `{{input}}` und `{{session}}`
 werden für ein JSON-Feld in Anführungszeichen maskiert, `{{turns}}` steht ohne Anführungszeichen.
-Die Antwort muss JSON sein, `responsePath` zeigt auf das Textfeld. Fehlt es, steht der Pfad mit
+Die Antwort ist JSON, `responsePath` zeigt auf das Textfeld. Fehlt es, steht der Pfad mit
 einem Auszug der Antwort im Fehler der Iteration, ebenso HTTP-Status und Antwortauszug bei
-Fehlern des Zielsystems.
+Fehlern des Zielsystems. Gestreamte Antworten stehen weiter unten.
 
 Variablen je Fall: `{{vars.name}}` setzt einen Wert aus dem Fall ein, im Body für ein JSON-Feld
 maskiert wie `{{input}}`, in Headern unverändert. Standardwerte stehen im target-Block unter
@@ -269,6 +276,39 @@ im Template und `key` ist der Pfad im Antwort-JSON, aus dem die vom Zielsystem v
 übernommen wird. Bei `cookie` ist `key` der Name des Cookies, das das Zielsystem setzt. Ein
 Dialog läuft Runde für Runde in derselben Sitzung (Abschnitt 5, Dialogszenario).
 Ein lauffähiges Beispiel liegt unter `examples/mock-target/aiqa.yaml`.
+
+Gestreamte Antworten: antwortet das Zielsystem als NDJSON (eine JSON-Zeile je Ereignis) oder
+als Server-Sent Events, sagt `responseFormat` das dem Adapter. Er liest den Stream bis zum Ende,
+`responseEvent` wählt die Ereignisse mit dem Text, `responsePath` liest dann das letzte gewählte
+Ereignis. Mit `concat` setzt AI QA den Text aus allen gewählten Ereignissen zusammen,
+`responsePath` entfällt dann. Bei SSE ist jedes Ereignis ein Objekt `{ event, id, data }`, Pfade
+beginnen also mit `$.data` oder `$.event`; `data: [DONE]` wird ignoriert. Die Sitzung aus einem
+anderen Ereignis holt `session.event`. Latenz und Timeouts gelten bis zum Ende des Streams.
+Hintergrund in [ADR 0024](docs/adr/0024-gestreamte-antworten.md).
+
+```yaml
+# NDJSON: ein Thread-Ereignis, dann das Ereignis mit der Antwort
+request:
+  body: '{"message": "{{input}}", "threadId": "{{session}}"}'
+  responseFormat: ndjson # json | ndjson | sse
+  responseEvent: { path: $.type, equals: final }
+  responsePath: $.reply # im gewählten Ereignis
+session:
+  mode: body
+  key: $.threadId
+  event: { path: $.type, equals: thread } # das Ereignis mit der Thread-ID
+```
+
+```yaml
+# SSE: der Text kommt in Stücken
+request:
+  body: '{"message": "{{input}}"}'
+  responseFormat: sse
+  responseEvent: { path: $.event, equals: delta, concat: $.data.text }
+```
+
+Trifft der Filter kein Ereignis oder fehlt der Text, steht das mit Filter und Auszug im Fehler
+der Iteration. Das Mock-Zielsystem bietet beide Formen unter `/chat/ndjson` und `/chat/sse`.
 
 Die gemeinsamen Bausteine aller Netzwerk-Adapter stehen und greifen im `target`-Block:
 
@@ -713,7 +753,8 @@ pnpm aiqa -- -w workspaces/messe run --plan goldsets/plan.yaml
 - Jeder Lauf speichert seine Bindung in `runs/<lauf>/bindings.json`, mit dem Wert des Laufs
   davor. Der Report nennt unter "Getauschte Werte seit dem Vorlauf" die Platzhalter, deren Wert
   sich geändert hat, mit Abfrage und Version, aber ohne die Werte. Ein anderer Wert kann am
-  Datenstand liegen, nicht am Zielsystem.
+  Datenstand liegen, nicht am Zielsystem. Die gesendeten Fragen unter "Fragen und Antworten"
+  enthalten die Werte, so wie sie an das Zielsystem gingen.
 - Fehlermeldungen der Quellen nennen die Art des Fehlers, etwa `http 500` oder `exit 3`, nie die
   Daten. Was ein Kommando genau meldet, zeigt es, wenn du es selbst aufrufst.
 - `aiqa judge --run` bewertet mit den Werten, die der Lauf hatte. Der Paarvergleich lässt Fälle
@@ -919,8 +960,15 @@ Jede Zahl im Report bezieht sich auf Iterationen, also auf Wiederholungen dessel
   Zahlen gelten nur für die ausgeführten Iterationen.
 - Judge-Kalibrierung: Cohen's Kappa des Judge je Goldset und ob er freigegeben ist. Ohne
   Kalibrierung steht das ebenfalls dort.
-- Stichprobe der Fehlschläge: bis zu fünf gescheiterte Iterationen mit der Originalantwort des
+- Stichprobe der Fehlschläge: bis zu fünf gescheiterte Iterationen mit Frage, Originalantwort des
   Zielsystems und der Begründung des Judge, damit du die Zahlen an Beispielen prüfen kannst.
+- Fragen und Antworten: je Fall die gestellte Frage, das Soll aus dem Goldset und die Antwort des
+  Zielsystems aus einer Iteration, der ersten gescheiterten, sonst der ersten. Soll ist die
+  Referenzantwort, ohne Referenz die Checks des Falls in Worten, ohne beides die Rubrik. Bei
+  Dialogen stehen die Nutzerzüge in Reihenfolge und die letzte Antwort. Fragen stehen so im
+  Report, wie sie gesendet wurden, also mit den Werten der Platzhalter. Texte sind auf 600
+  Zeichen gekürzt, Fälle ohne Wert für einen Platzhalter stehen mit der Frage aus dem Goldset
+  am Ende.
 - Fehlerquote je Kategorie: Anteil der gescheiterten Iterationen je Kategorie mit Intervall.
   Kategorie ist die Quelle des Falls (etwa LLM01), sonst sein erstes Tag.
 - Trend: Pass-Rate der letzten zehn Läufe gegen dasselbe Zielsystem, mit Intervall.
@@ -935,7 +983,8 @@ pnpm aiqa -- -w workspaces/mein-bot report --run latest --format html
 Schreibt `reports/<lauf-id>.html`, eine einzelne Datei ohne Skripte, die beim Öffnen nichts
 nachlädt. Die Schriften sind eingebettet, eine Content-Security-Policy im Dokument verbietet jede
 Anfrage. Inhalt: Kernaussage, Kennzahlen, Judge-Kalibrierung, Fehlerquote je Kategorie, Trend als
-Diagramm, bestätigte Befunde, Ergebnis je Fall, Stichprobe der Fehlschläge und Lauf-Metadaten
+Diagramm, bestätigte Befunde, Ergebnis je Fall, Stichprobe der Fehlschläge, Fragen und Antworten
+je Fall und Lauf-Metadaten
 (Zielversion, Modell, Katalog- und Goldset-Version). Standard ist das Theme `wirkmittel`,
 `--theme neutral` liefert schwarz auf weiß mit Systemschriften. Die Datei ist rund 550 KB groß,
 fast alles Schriften. Hintergrund in [ADR 0009](docs/adr/0009-html-report-und-themes.md).
@@ -1126,8 +1175,9 @@ die Benachrichtigung von GitHub.
 - Deine Fälle, Zugangsdaten und Ergebnisse gehören in deinen Arbeitsbereich, nie in dieses
   Repository. `workspaces/`, `runs/`, `reports/` und `.env` stehen in der `.gitignore`, der
   Arbeitsbereich aus `aiqa init` bringt seine eigene `.gitignore` mit.
-- `runs/` enthält wörtlich, was das Zielsystem geantwortet hat, auch versehentlich preisgegebene
-  Inhalte. Behandle Läufe und Reports wie vertrauliche Daten.
+- `runs/` und Reports enthalten wörtlich, was gefragt und geantwortet wurde, auch versehentlich
+  preisgegebene Inhalte und die Werte der Platzhalter. Behandle Läufe und Reports wie
+  vertrauliche Daten.
 - Werte gehören in eine `.env`. `aiqa` lädt vor jedem Befehl die `.env` des Arbeitsbereichs
   (Ordner der `aiqa.yaml`) und danach die im Startverzeichnis, etwa im Repository. Variablen aus
   der Shell haben Vorrang, Werte erscheinen nie in Ausgaben, Läufen oder Reports. Welche Dateien
@@ -1142,7 +1192,7 @@ die Benachrichtigung von GitHub.
 
 ## 10. Status, Lizenz, Mitmachen, Kontakt
 
-- Status: Version 0.9.1 vom 20.10.2026, Änderungen in [CHANGELOG.md](CHANGELOG.md). Die
+- Status: Version 0.10.0 vom 26.10.2026, Änderungen in [CHANGELOG.md](CHANGELOG.md). Die
   Meilensteine Foundation, Dialoge und Agenten sowie MVP mit dem ersten echten Zielsystem sind
   abgeschlossen. Erledigt ist, was in einem Release enthalten ist.
 - Herausgeber: Philipp Löschner, Wirkmittel AI, https://wirkmittel.ai, E-Mail

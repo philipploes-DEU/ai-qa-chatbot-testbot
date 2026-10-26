@@ -11,6 +11,7 @@ export * from "./rate-limit.js";
 export * from "./response-path.js";
 export * from "./retry.js";
 export * from "./script.js";
+export * from "./stream-events.js";
 export * from "./target.js";
 export * from "./template.js";
 export * from "./token-auth.js";

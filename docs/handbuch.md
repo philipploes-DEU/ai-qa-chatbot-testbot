@@ -1,4 +1,4 @@
-# AI QA: Handbuch
+# Handbuch zu AI QA: Der Chatbot-Testbot
 
 Dieses Handbuch erklärt, wofür AI QA da ist, was es kann, was du dafür brauchst, wie du es
 bedienst und was die Ergebnisse bedeuten. Es richtet sich an Fachleute, die eine
@@ -28,7 +28,8 @@ für ein konkretes System gegen einen konkreten Satz von Testfällen.
 - Testfälle fahren: Frage-Antwort-Fälle, Dialoge mit mehreren Gesprächszügen und Proben, die
   gezielt Fehlverhalten auslösen wollen. Die Fälle liegen als Goldset in einer Textdatei, mit
   Erwartung, Bewertungsrubrik, Schweregrad und Freigabestatus.
-- Zielsysteme anbinden: jede Chat-Schnittstelle mit JSON-Antwort über ein Request-Template, jede
+- Zielsysteme anbinden: jede Chat-Schnittstelle mit JSON-Antwort oder gestreamter Antwort
+  (NDJSON, Server-Sent Events) über ein Request-Template, jede
   OpenAI-kompatible Schnittstelle (eigene Gateways, Ollama, Hosting-Anbieter), die
   Web-Oberfläche eines Bots über einen gesteuerten Browser, ein lokales Kommando als Ausweichweg
   und ein Dummy ohne Netzwerk zum Ausprobieren. Zugang über Umgebungsvariablen, auch mit Login
@@ -60,7 +61,8 @@ für ein konkretes System gegen einen konkreten Satz von Testfällen.
 - Kosten begrenzen: ein Plan hat ein Budget an Aufrufen und Tokens. Wird es erreicht, endet der
   Lauf sauber und ist im Report als unvollständig gekennzeichnet.
 - Berichten: ein Report je Lauf mit Zusammenfassung, Fehlerquote je Kategorie, Trend über die
-  letzten Läufe, Tabelle je Fall, Fehlschlägen mit Begründung und Hinweisen. Als Markdown für
+  letzten Läufe, Tabelle je Fall, Fehlschlägen mit Begründung, Frage, Soll und Antwort je Fall
+  und Hinweisen. Als Markdown für
   Entwickler oder als eigenständige HTML-Datei für die Abnahme durch einen Fachbereich. Die
   Rohdaten liegen daneben als Textdateien.
 
@@ -219,6 +221,12 @@ zusammen.
   Diagramm mit Intervall, darunter die Werte als Tabelle.
 - Kernaussage: der HTML-Report beginnt mit wenigen Sätzen aus den Zahlen des Laufs, Pass-Rate
   mit Intervall, schwächste Kategorie, Schwankung, und was die Zahlen weniger belastbar macht.
+- Fragen und Antworten: je Fall die gestellte Frage, das Soll aus dem Goldset (Referenzantwort,
+  sonst die Checks in Worten, sonst die Rubrik) und die Antwort des Zielsystems aus einer
+  Iteration, der ersten gescheiterten, sonst der ersten. So prüfst du die Zahlen an den
+  Inhalten, ohne die Rohdaten zu öffnen. Fragen stehen so im Report, wie sie gesendet wurden,
+  mit den Werten der Platzhalter. Lange Texte sind gekürzt, die vollständigen stehen in den
+  Rohdaten des Laufs.
 
 Wie du die Zahlen liest: Ein Fall mit 100 Prozent und breitem Intervall braucht mehr
 Wiederholungen, bevor du ihn als sicher einstufst. Ein Fall mit hoher Flakiness ist ein
@@ -228,5 +236,6 @@ Sinne von AI QA ist eine Hypothese über mehrere Fehlschläge hinweg, zum Beispi
 in der Eingabe hebelt die Regeln aus". Das Gruppieren übernimmt `aiqa analyze`, die Hypothesen
 prüfst du selbst.
 
-Läufe und Reports enthalten wörtlich, was das Zielsystem geantwortet hat, auch versehentlich
-preisgegebene Inhalte. Behandle sie wie vertrauliche Daten. Mehr dazu in der README, Abschnitt 9.
+Läufe und Reports enthalten wörtlich, was gefragt und geantwortet wurde, auch versehentlich
+preisgegebene Inhalte und die Werte der Platzhalter. Behandle sie wie vertrauliche Daten. Mehr
+dazu in der README, Abschnitt 9.

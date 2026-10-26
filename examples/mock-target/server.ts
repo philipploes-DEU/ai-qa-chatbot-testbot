@@ -16,6 +16,11 @@ import type { AddressInfo } from "node:net";
  *   POST /chat                   { message } or { messages: [{ role, content }] } to { reply, sessionId }
  *   POST /chat/slow              same as /chat, answers after slowMs (default 10 seconds)
  *   POST /chat/limited           same as /chat, every other call answers HTTP 429 with Retry-After
+ *   POST /chat/ndjson            { message, threadId? } answered as NDJSON: a thread event with
+ *                                the id the mock assigned (an unknown or missing id opens a new
+ *                                thread), then a final event with the reply (issue #106)
+ *   POST /chat/sse               { message } answered as Server-Sent Events: delta events with
+ *                                the reply in pieces, a done event, then data: [DONE]
  *   POST /v1/chat/completions    OpenAI chat completions shape, answers from the same table;
  *                                with model gartenhelden-judge it plays a judge and rates every
  *                                rubric criterion it finds in the prompt as passed
@@ -192,6 +197,8 @@ const RECALL_PATTERN = /^wie heiße ich\??$/i;
 export function createMockTargetServer(options: MockTargetOptions = {}): Server {
   const slowMs = options.slowMs ?? 10_000;
   const sessions = new Map<string, Session>();
+  /** Threads of the NDJSON route, keyed by the id the mock assigned (issue #106). */
+  const threads = new Map<string, Session>();
   let limitedCalls = 0;
 
   function answer(message: string, session: Session | null): string {
@@ -246,6 +253,41 @@ export function createMockTargetServer(options: MockTargetOptions = {}): Server 
     const reply = answer(message, session);
     if (variant === "slow") await delay(slowMs);
     sendJson(response, 200, { reply, sessionId: id }, id === null ? {} : { "x-session-id": id });
+  }
+
+  /** NDJSON with a thread the mock assigns: an unknown or missing threadId opens a new one. */
+  async function handleNdjson(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const body = await readBody(request);
+    const record =
+      typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+    const given = typeof record.threadId === "string" ? record.threadId : undefined;
+    const threadId = given !== undefined && threads.has(given) ? given : randomUUID();
+    let thread = threads.get(threadId);
+    if (thread === undefined) {
+      thread = {};
+      threads.set(threadId, thread);
+    }
+    const reply = answer(lastUserMessage(body), thread);
+    response.writeHead(200, { "content-type": "application/x-ndjson" });
+    response.end(
+      `${JSON.stringify({ type: "thread", threadId })}\n${JSON.stringify({ type: "final", reply })}\n`,
+    );
+  }
+
+  /** Server-Sent Events: the reply in word sized delta events, a done event, then [DONE]. */
+  async function handleSse(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const { id, session } = sessionOf(request);
+    const reply = answer(lastUserMessage(await readBody(request)), session);
+    response.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      ...(id === null ? {} : { "x-session-id": id }),
+    });
+    for (const piece of reply.split(/(?<=\s)/)) {
+      response.write(`event: delta\ndata: ${JSON.stringify({ type: "delta", text: piece })}\n\n`);
+    }
+    response.write(`event: done\ndata: ${JSON.stringify({ type: "done", sessionId: id })}\n\n`);
+    response.end("data: [DONE]\n\n");
   }
 
   async function handleCompletions(
@@ -306,6 +348,8 @@ export function createMockTargetServer(options: MockTargetOptions = {}): Server 
     if (method === "POST" && pathname === "/chat/limited") {
       return handleChat(request, response, "limited");
     }
+    if (method === "POST" && pathname === "/chat/ndjson") return handleNdjson(request, response);
+    if (method === "POST" && pathname === "/chat/sse") return handleSse(request, response);
     if (method === "POST" && pathname === "/v1/chat/completions") {
       return handleCompletions(request, response);
     }

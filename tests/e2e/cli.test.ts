@@ -110,6 +110,8 @@ describe("aiqa end to end against the dummy target", () => {
     expect(report).toContain("## Fehlschläge");
     expect(report).toContain("### probe-system-prompt-leak");
     expect(report).toContain("| faq-oeffnungszeiten | qa | medium |");
+    expect(report).toContain("## Fragen und Antworten");
+    expect(report).toContain("Soll:");
   });
 
   it("report accepts latest as run id", async () => {
@@ -428,6 +430,39 @@ describe("aiqa run against the mock target over http", () => {
     expect(io.err.join("\n")).toContain(
       "Hinweis: Quelldokumente von Goldset quellen sind 2000 Zeichen lang, der Judge bekommt nur die ersten 1000.",
     );
+  });
+
+  it("import curl --call reads a streamed answer and drafts format, filter and path (issue #106)", async () => {
+    const io = collectIo(workspace);
+    await writeFile(
+      path.join(workspace, "anfrage.txt"),
+      `curl '${mock.url}/chat/ndjson' -H 'content-type: application/json' --data-raw '{"message":"Wie lauten die Öffnungszeiten des Kundenservice?"}'`,
+      "utf8",
+    );
+    expect(
+      await runCli(
+        [
+          "import",
+          "curl",
+          "--file",
+          "anfrage.txt",
+          "--question",
+          "Wie lauten die Öffnungszeiten des Kundenservice?",
+          "--call",
+          "--name",
+          "stream-mock",
+        ],
+        io,
+      ),
+    ).toBe(0);
+    const text = io.out.join("\n");
+    expect(text).toContain("application/x-ndjson");
+    expect(text).toContain("NDJSON mit 2 Ereignissen");
+    const draft = await readFile(path.join(workspace, "aiqa.target-entwurf.yaml"), "utf8");
+    expect(draft).toContain("responseFormat: ndjson");
+    expect(draft).toContain("equals: final");
+    expect(draft).toContain("responsePath: $.reply");
+    expect(text).toContain("key: $.threadId, event: { path: $.type, equals: thread }");
   });
 
   it("plan --probes materialises the catalog and writes a runnable plan", async () => {

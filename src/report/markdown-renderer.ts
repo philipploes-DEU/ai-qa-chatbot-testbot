@@ -1,6 +1,13 @@
 import { describeKappa } from "../stats/kappa.js";
 import type { Interval } from "../stats/wilson.js";
-import type { CaseReport, ReportModel, ReportTotals, UnjudgedIteration } from "./report-model.js";
+import {
+  type CaseExchange,
+  type CaseReport,
+  type ReportModel,
+  type ReportTotals,
+  SAMPLE_RESPONSE_LENGTH,
+  type UnjudgedIteration,
+} from "./report-model.js";
 import type { ReportRenderer } from "./report-renderer.js";
 import { defaultTheme, type ReportTheme } from "./themes/default/theme.js";
 
@@ -89,6 +96,64 @@ export function describeWithoutJudge(
     `, ${String(left)} nicht in der Quote` +
     (countedAsFailed === 0 ? "" : `, ${String(countedAsFailed)} als Fehlschlag gezählt`)
   );
+}
+
+/** What the section "Fragen und Antworten" shows, shared by every renderer (issue #107). */
+export const EXCHANGES_INTRO =
+  "Je Fall die gestellte Frage, das Soll aus dem Goldset und die Antwort des Zielsystems aus einer Iteration: der ersten gescheiterten, sonst der ersten. " +
+  "Bei Dialogen stehen die Nutzerzüge in Reihenfolge und die letzte Antwort. " +
+  "Fragen stehen hier so, wie sie gesendet wurden, mit den Werten der Platzhalter. " +
+  `Texte sind auf ${String(SAMPLE_RESPONSE_LENGTH)} Zeichen gekürzt.`;
+
+/** "bestanden, 3 von 3 Iterationen": the outcome of a case for the heading of its exchange. */
+export function exchangeLabel(exchange: CaseExchange): string {
+  const count = `${String(exchange.iterations)} ${exchange.iterations === 1 ? "Iteration" : "Iterationen"}`;
+  switch (exchange.outcome) {
+    case "passed":
+      return `bestanden, ${String(exchange.passes)} von ${String(exchange.judged)} Iterationen`;
+    case "failed":
+      return `gescheitert, ${String(exchange.passes)} von ${String(exchange.judged)} Iterationen bestanden`;
+    case "error":
+      return `Fehler, ${count}`;
+    case "notExecuted":
+      return "nicht ausgeführt (HTTP 429)";
+    case "unresolved":
+      return "nicht gebunden";
+    case "noVerdict":
+      return `ohne Urteil, ${count}`;
+  }
+}
+
+/** "Ist, Iteration 2, Wortlaut über die Iterationen verschieden": the label of the shown answer. */
+export function answerLabel(exchange: CaseExchange): string {
+  if (exchange.index === null) return "Ist";
+  const wording =
+    exchange.varies === null || exchange.answer === null
+      ? ""
+      : exchange.varies
+        ? ", Wortlaut über die Iterationen verschieden"
+        : ", Wortlaut in allen Iterationen gleich";
+  return `Ist, Iteration ${String(exchange.index)}${wording}`;
+}
+
+/** The sentence shown instead of an expected answer, or null when there is one. */
+export function missingExpected(exchange: CaseExchange): string | null {
+  if (exchange.expected === null) return "Soll: nicht bekannt, das Goldset wurde nicht geladen.";
+  if (exchange.expected.length === 0) return "Soll: keine Erwartung hinterlegt.";
+  return null;
+}
+
+/** The sentence shown instead of an answer, or null when there is one. */
+export function missingAnswer(exchange: CaseExchange): string | null {
+  if (exchange.index === null) return "Ist: nicht geschickt.";
+  if (exchange.answer === null) {
+    return `${answerLabel(exchange)}: keine Antwort (${exchange.error ?? "Fehler"}).`;
+  }
+  return null;
+}
+
+function quote(text: string): string[] {
+  return text.split(/\r?\n/).map((line) => `> ${line}`);
 }
 
 function cell(text: string): string {
@@ -320,7 +385,7 @@ export class MarkdownRenderer implements ReportRenderer {
     if (model.bindingChanges.length > 0) {
       lines.push("## Getauschte Werte seit dem Vorlauf", "");
       lines.push(
-        "Platzhalter, die aus der Datenquelle einen anderen Wert bekamen als im Lauf davor. Ein Unterschied zum Vorlauf kann am Datenstand liegen, nicht am Zielsystem. Die Werte stehen in `runs/<lauf>/bindings.json`, nicht im Report, weil sie personenbezogen sein können.",
+        "Platzhalter, die aus der Datenquelle einen anderen Wert bekamen als im Lauf davor. Ein Unterschied zum Vorlauf kann am Datenstand liegen, nicht am Zielsystem. Die Werte stehen in `runs/<lauf>/bindings.json`, diese Tabelle nennt nur die Platzhalter. Die gesendeten Fragen unter Fragen und Antworten enthalten die Werte.",
         "",
       );
       lines.push(
@@ -418,13 +483,44 @@ export class MarkdownRenderer implements ReportRenderer {
       for (const sample of model.samples) {
         const status = sample.status === undefined ? "" : `, HTTP ${String(sample.status)}`;
         lines.push(`### ${sample.caseId}, Iteration ${String(sample.index)}${status}`, "");
+        if (sample.question.length > 0) {
+          lines.push("Frage:", "", ...quote(sample.question.join("\n\n")), "");
+        }
         lines.push("Antwort des Zielsystems:", "");
-        lines.push(...sample.response.split(/\r?\n/).map((line) => `> ${line}`), "");
+        lines.push(...quote(sample.response), "");
         for (const check of sample.checks) lines.push(`- ${check.name}: ${check.reason}`);
         if (sample.judgeReasoning !== undefined) {
           lines.push(`- Begründung des Judge: ${sample.judgeReasoning}`);
         }
         lines.push("");
+      }
+    }
+
+    if (model.exchanges.length > 0) {
+      lines.push("## Fragen und Antworten", "");
+      lines.push(EXCHANGES_INTRO, "");
+      for (const exchange of model.exchanges) {
+        lines.push(
+          `### ${exchange.caseId}${exchange.draft ? " (Entwurf)" : ""}: ${exchangeLabel(exchange)}`,
+          "",
+        );
+        if (exchange.question.length === 0) {
+          lines.push("Frage: nicht bekannt.", "");
+        } else {
+          lines.push("Frage:", "", ...quote(exchange.question.join("\n\n")), "");
+        }
+        const noExpected = missingExpected(exchange);
+        if (noExpected !== null) {
+          lines.push(noExpected, "");
+        } else {
+          lines.push("Soll:", "", ...quote((exchange.expected ?? []).join("\n")), "");
+        }
+        const noAnswer = missingAnswer(exchange);
+        if (noAnswer !== null) {
+          lines.push(noAnswer, "");
+        } else {
+          lines.push(`${answerLabel(exchange)}:`, "", ...quote(exchange.answer ?? ""), "");
+        }
       }
     }
 

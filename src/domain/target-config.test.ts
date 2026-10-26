@@ -198,6 +198,88 @@ describe("TimeoutsSchema", () => {
   });
 });
 
+describe("streamed answers (issue #106)", () => {
+  function withRequest(request: Record<string, unknown>, session?: Record<string, unknown>) {
+    return TargetConfigSchema.safeParse({
+      ...httpTarget,
+      request: { body: '{"q": "{{input}}"}', ...request },
+      ...(session === undefined ? {} : { session }),
+    });
+  }
+  const finalEvent = {
+    responseFormat: "ndjson",
+    responseEvent: { path: "$.type", equals: "final" },
+    responsePath: "$.reply",
+  };
+
+  it("defaults to json and accepts ndjson and sse with an event filter", () => {
+    expect(TargetConfigSchema.parse(httpTarget).request?.responseFormat).toBe("json");
+    expect(withRequest(finalEvent).success).toBe(true);
+    expect(
+      withRequest({
+        responseFormat: "sse",
+        responseEvent: { path: "$.data.type", equals: "delta", concat: "$.data.text" },
+      }).success,
+    ).toBe(true);
+    expect(
+      withRequest({ responseFormat: "sse", responseEvent: { concat: "$.data" } }).success,
+    ).toBe(true);
+    expect(withRequest({ responseFormat: "ndjson", responsePath: "$.reply" }).success).toBe(true);
+  });
+
+  it("rejects a filter for json, a stream without text source and concat next to a path", () => {
+    expect(
+      failurePaths(
+        withRequest({
+          responseEvent: { path: "$.type", equals: "final" },
+          responsePath: "$.reply",
+        }),
+      ),
+    ).toContain("request.responseEvent");
+    expect(failurePaths(withRequest({ responseFormat: "ndjson" }))).toContain(
+      "request.responsePath",
+    );
+    expect(
+      failurePaths(
+        withRequest({
+          responseFormat: "ndjson",
+          responseEvent: { path: "$.type", equals: "delta", concat: "$.text" },
+          responsePath: "$.reply",
+        }),
+      ),
+    ).toContain("request.responsePath");
+    expect(
+      failurePaths(
+        withRequest({
+          responseFormat: "sse",
+          responseEvent: { path: "$.type" },
+          responsePath: "$.reply",
+        }),
+      ),
+    ).toContain("request.responseEvent");
+    expect(
+      failurePaths(
+        withRequest({ responseFormat: "sse", responseEvent: {}, responsePath: "$.reply" }),
+      ),
+    ).toContain("request.responseEvent");
+  });
+
+  it("takes the session from a chosen event only with mode body and a stream", () => {
+    const fromEvent = {
+      mode: "body",
+      key: "$.threadId",
+      event: { path: "$.type", equals: "thread" },
+    };
+    expect(withRequest(finalEvent, fromEvent).success).toBe(true);
+    expect(failurePaths(withRequest({ responsePath: "$.reply" }, fromEvent))).toContain(
+      "session.event",
+    );
+    expect(
+      failurePaths(withRequest(finalEvent, { ...fromEvent, mode: "header", key: "X" })),
+    ).toContain("session.event");
+  });
+});
+
 describe("openai block", () => {
   const openAiTarget = {
     name: "bot",

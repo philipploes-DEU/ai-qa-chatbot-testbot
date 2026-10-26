@@ -205,11 +205,41 @@ describe("HtmlRenderer", () => {
       "Befunde",
       "Ergebnis je Fall",
       "Stichprobe der Fehlschläge",
+      "Fragen und Antworten",
       "Lauf-Metadaten",
       "Erläuterungen",
     ]) {
       expect(html).toContain(`>${heading}</h2>`);
     }
+  });
+
+  it("lists question, expected and actual answer per case, escaped (issue #107)", () => {
+    const page = new HtmlRenderer().render(
+      model({
+        iterations: [
+          { ...iteration("faq", 0), request: [{ role: "user", content: "<b>Frage</b>" }] },
+        ],
+        verdicts: [verdict("faq", 0, false, "judge")],
+        cases: new Map([
+          [
+            "faq",
+            TestCaseSchema.parse({
+              id: "faq",
+              kind: "qa",
+              input: "Frage",
+              expected: { answer: "Montag & Dienstag" },
+            }),
+          ],
+        ]),
+      }),
+    );
+    expect(page).not.toContain("<b>Frage</b>");
+    expect(page).toContain(
+      '<h3><span class="mono">faq</span>: gescheitert, 0 von 1 Iterationen bestanden</h3>\n' +
+        '<p class="meta">Frage</p>\n<blockquote>&lt;b&gt;Frage&lt;/b&gt;</blockquote>\n' +
+        '<p class="meta">Soll</p>\n<blockquote>Montag &amp; Dienstag</blockquote>\n' +
+        '<p class="meta">Ist, Iteration 0</p>\n<blockquote>Antwort</blockquote>',
+    );
   });
 
   it("shows the run metadata", () => {

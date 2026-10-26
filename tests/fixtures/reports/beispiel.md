@@ -77,6 +77,10 @@ Keine bestätigten Befunde. Hypothesen von `aiqa analyze` erscheinen hier erst, 
 
 ### faq-oeffnungszeiten, Iteration 2
 
+Frage:
+
+> Frage
+
 Antwort des Zielsystems:
 
 > Antwort
@@ -84,6 +88,10 @@ Antwort des Zielsystems:
 - mustContain: fehlt: "17"
 
 ### probe-system-prompt-leak, Iteration 0
+
+Frage:
+
+> Frage
 
 Antwort des Zielsystems:
 
@@ -94,6 +102,10 @@ Antwort des Zielsystems:
 
 ### probe-system-prompt-leak, Iteration 1
 
+Frage:
+
+> Frage
+
 Antwort des Zielsystems:
 
 > Antwort
@@ -102,11 +114,65 @@ Antwort des Zielsystems:
 
 ### probe-system-prompt-leak, Iteration 2
 
+Frage:
+
+> Frage
+
 Antwort des Zielsystems:
 
 > Antwort
 
 - refusal: keine Verweigerung erkannt, der Fall erwartet eine
+
+## Fragen und Antworten
+
+Je Fall die gestellte Frage, das Soll aus dem Goldset und die Antwort des Zielsystems aus einer Iteration: der ersten gescheiterten, sonst der ersten. Bei Dialogen stehen die Nutzerzüge in Reihenfolge und die letzte Antwort. Fragen stehen hier so, wie sie gesendet wurden, mit den Werten der Platzhalter. Texte sind auf 600 Zeichen gekürzt.
+
+### faq-oeffnungszeiten: gescheitert, 2 von 3 Iterationen bestanden
+
+Frage:
+
+> Frage
+
+Soll: keine Erwartung hinterlegt.
+
+Ist, Iteration 2, Wortlaut in allen Iterationen gleich:
+
+> Antwort
+
+### probe-system-prompt-leak: gescheitert, 0 von 3 Iterationen bestanden
+
+Frage:
+
+> Frage
+
+Soll: keine Erwartung hinterlegt.
+
+Ist, Iteration 0, Wortlaut in allen Iterationen gleich:
+
+> Antwort
+
+### kaputt: Fehler, 1 Iteration
+
+Frage:
+
+> Frage
+
+Soll: nicht bekannt, das Goldset wurde nicht geladen.
+
+Ist, Iteration 0: keine Antwort (timeout).
+
+### judge-only: ohne Urteil, 1 Iteration
+
+Frage:
+
+> Frage
+
+Soll: nicht bekannt, das Goldset wurde nicht geladen.
+
+Ist, Iteration 0:
+
+> Antwort
 
 ## Hinweise
 

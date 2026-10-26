@@ -9,6 +9,7 @@ import {
   type TargetHttpResponse,
 } from "./http-client.js";
 import { extractPath, ResponsePathError } from "./response-path.js";
+import { parseNdjson, parseSse, selectEvents, streamAnswer } from "./stream-events.js";
 import type { SendOptions, TargetAdapter, TargetResponse } from "./target.js";
 import { renderTemplate, type TemplateValues, templateVars } from "./template.js";
 
@@ -43,6 +44,9 @@ function mergeBody(body: string, merge: Readonly<Record<string, unknown>> | unde
  * Auth, rate limit, backoff and timeouts come from the shared client (issue #5).
  * A follow-up call of a dialog merges `bodyMerge` into the rendered JSON body (issue #84); the
  * parsed answer goes back as `data` for captures.
+ * A streamed answer (`responseFormat` ndjson or sse, ADR 0024) is read to its end, then
+ * `responseEvent` picks the events with the text; `data` and a body session read the chosen
+ * event, `session.event` picks another one for the session value.
  */
 export class HttpTemplateAdapter implements TargetAdapter {
   readonly name: string;
@@ -116,21 +120,48 @@ export class HttpTemplateAdapter implements TargetAdapter {
         : { body: mergeBody(renderTemplate(this.request.body, values), options.bodyMerge) }),
     });
 
-    let payload: unknown;
-    try {
-      payload = response.json();
-    } catch {
-      throw new ResponsePathError(`Antwort ist kein JSON: ${excerpt(response.text)}`);
-    }
-    if (state !== undefined) this.adoptSession(state, response, payload);
+    const { content, payload, events } = this.readAnswer(response);
+    if (state !== undefined) this.adoptSession(state, response, payload, events);
 
     return {
-      content: extractPath(payload, this.request.responsePath),
-      raw: { status: response.status, attempts: response.attempts, ...asRecord(payload) },
+      content,
+      raw:
+        events === undefined
+          ? { status: response.status, attempts: response.attempts, ...asRecord(payload) }
+          : {
+              status: response.status,
+              attempts: response.attempts,
+              events: events.length,
+              excerpt: excerpt(response.text),
+            },
       data: payload,
       status: response.status,
       latencyMs: response.latencyMs,
     };
+  }
+
+  /** The answer text and the event or document it came from, by responseFormat (ADR 0024). */
+  private readAnswer(response: TargetHttpResponse): {
+    content: string;
+    payload: unknown;
+    events?: unknown[];
+  } {
+    const format = this.request.responseFormat;
+    if (format === "json") {
+      let payload: unknown;
+      try {
+        payload = response.json();
+      } catch {
+        throw new ResponsePathError(`Antwort ist kein JSON: ${excerpt(response.text)}`);
+      }
+      if (this.request.responsePath === undefined) {
+        throw new ResponsePathError("responsePath fehlt im Request-Template");
+      }
+      return { content: extractPath(payload, this.request.responsePath), payload };
+    }
+    const events = format === "ndjson" ? parseNdjson(response.text) : parseSse(response.text);
+    const answer = streamAnswer(events, this.request);
+    return { content: answer.content, payload: answer.event, events };
   }
 
   private addSessionHeader(headers: Record<string, string>, state: SessionState): void {
@@ -148,8 +179,16 @@ export class HttpTemplateAdapter implements TargetAdapter {
     }
   }
 
-  /** Takes over the session value the target assigned, so later turns use the target's id. */
-  private adoptSession(state: SessionState, response: TargetHttpResponse, payload: unknown): void {
+  /**
+   * Takes over the session value the target assigned, so later turns use the target's id. In a
+   * stream, mode body reads the event `session.event` selects, else the answer event.
+   */
+  private adoptSession(
+    state: SessionState,
+    response: TargetHttpResponse,
+    payload: unknown,
+    events: readonly unknown[] | undefined,
+  ): void {
     const key = this.session.key ?? "";
     switch (this.session.mode) {
       case "header": {
@@ -158,8 +197,13 @@ export class HttpTemplateAdapter implements TargetAdapter {
         return;
       }
       case "body": {
+        const source =
+          events !== undefined && this.session.event !== undefined
+            ? selectEvents(events, this.session.event).at(-1)
+            : payload;
+        if (source === undefined) return;
         try {
-          state.token = extractPath(payload, key);
+          state.token = extractPath(source, key);
         } catch {
           // The target did not return a session; keep what we have.
         }

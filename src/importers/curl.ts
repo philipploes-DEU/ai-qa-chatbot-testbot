@@ -1,3 +1,5 @@
+import { readPath } from "../adapters/response-path.js";
+import { parseNdjson, parseSse, StreamError } from "../adapters/stream-events.js";
 import type { TargetConfigInput } from "../domain/target-config.js";
 
 /** A request as the browser copied it. Secrets are still inside; it never goes to a file. */
@@ -304,6 +306,7 @@ const SKIPPED = new Set([
   "role",
   "status",
   "type",
+  "event",
   "url",
   "object",
   "finish_reason",
@@ -363,6 +366,185 @@ export function suggestResponsePaths(payload: unknown): { path: string; excerpt:
     .map(({ path, excerpt }) => ({ path, excerpt }));
 }
 
+/** A sample answer that arrived as a stream: its events as the http adapter sees them. */
+export interface StreamSample {
+  format: "ndjson" | "sse";
+  events: readonly unknown[];
+}
+
+export type SampleAnswer = { format: "json"; payload: unknown } | StreamSample;
+
+const STREAM_TYPES: readonly { match: RegExp; format: StreamSample["format"] }[] = [
+  { match: /text\/event-stream/i, format: "sse" },
+  { match: /ndjson|jsonl|json-seq|jsonlines/i, format: "ndjson" },
+];
+
+function parseStream(text: string, format: StreamSample["format"]): StreamSample {
+  try {
+    const events = format === "sse" ? parseSse(text) : parseNdjson(text);
+    if (events.length === 0) {
+      throw new CurlImportError(
+        "Die Antwort enthält kein Ereignis. Antwortformat und Ereignisfilter bitte von Hand setzen.",
+      );
+    }
+    return { format, events };
+  } catch (error) {
+    if (error instanceof StreamError) throw new CurlImportError(error.message);
+    throw error;
+  }
+}
+
+/**
+ * Reads a sample answer as JSON, NDJSON or Server-Sent Events (issue #106): by the content
+ * type when one is known, else by its shape.
+ */
+export function parseSampleAnswer(text: string, contentType?: string): SampleAnswer {
+  const known = STREAM_TYPES.find((entry) => entry.match.test(contentType ?? ""));
+  if (known !== undefined) return parseStream(text, known.format);
+  try {
+    return { format: "json", payload: JSON.parse(text) as unknown };
+  } catch {
+    // Not one JSON document; maybe several lines or events.
+  }
+  if (/^data:/m.test(text)) return parseStream(text, "sse");
+  try {
+    return parseStream(text, "ndjson");
+  } catch {
+    throw new CurlImportError(
+      "Die Antwort ist weder JSON noch NDJSON noch Server-Sent Events. Der Adapter http braucht eines davon.",
+    );
+  }
+}
+
+export interface StreamSuggestion {
+  responseEvent?: { path?: string; equals?: string; concat?: string };
+  responsePath?: string;
+  /** What the human should check, never a secret. */
+  notes: string[];
+}
+
+const DISCRIMINATOR_KEYS = ["type", "event", "kind", "name", "status", "object"];
+const SESSION_KEY = /thread|session|conversation/i;
+
+function stringAt(event: unknown, path: string): string | undefined {
+  const value = readPath(event, path);
+  return typeof value === "string" ? value : undefined;
+}
+
+/** A path whose string value every event has, so it tells the events apart. */
+function discriminatorOf(sample: StreamSample): string | undefined {
+  const prefix = sample.format === "sse" ? "$.data." : "$.";
+  const candidates = [
+    ...(sample.format === "sse" ? ["$.event"] : []),
+    ...DISCRIMINATOR_KEYS.map((key) => `${prefix}${key}`),
+  ];
+  return candidates.find((path) =>
+    sample.events.every((event) => stringAt(event, path) !== undefined),
+  );
+}
+
+/** The best text path of the first event that every event of the group has as a string. */
+function sharedTextPath(events: readonly unknown[]): string | undefined {
+  const first = events[0];
+  if (first === undefined) return undefined;
+  return suggestResponsePaths(first)
+    .map((candidate) => candidate.path)
+    .find((path) => events.every((event) => stringAt(event, path) !== undefined));
+}
+
+function mostCommon(values: readonly string[]): string {
+  const counts = new Map<string, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+}
+
+/** A note about an event that carries a thread or session id, for session.event (ADR 0024). */
+function sessionNote(sample: StreamSample, path: string, answerValue: string): string[] {
+  const prefix = sample.format === "sse" ? "$.data." : "$.";
+  for (const event of sample.events) {
+    const value = stringAt(event, path);
+    if (value === undefined || value === answerValue) continue;
+    const record = sample.format === "sse" ? readPath(event, "$.data") : event;
+    if (typeof record !== "object" || record === null) continue;
+    const key = Object.keys(record as Record<string, unknown>).find(
+      (name) =>
+        SESSION_KEY.test(name) && typeof (record as Record<string, unknown>)[name] === "string",
+    );
+    if (key === undefined) continue;
+    return [
+      `Das Ereignis ${path} = ${value} enthält ${prefix}${key}, vermutlich die Sitzung. Führt das Zielsystem Gespräche damit, ergänze session mit mode: body, key: ${prefix}${key}, event: { path: ${path}, equals: ${value} } und {{session}} im Body.`,
+    ];
+  }
+  return [];
+}
+
+/**
+ * Format, event filter and text path for a streamed sample answer (issue #106): the last event
+ * when its kind appears once and carries text, else the text joined over the most common kind.
+ */
+export function suggestStream(sample: StreamSample): StreamSuggestion {
+  const { events } = sample;
+  const fallback: StreamSuggestion = {
+    responsePath: "$.answer",
+    notes: [
+      "Im Stream ist kein Text zu finden. Ereignisfilter (responseEvent) und Antwortpfad bitte von Hand setzen, siehe README, Adapter http, gestreamte Antworten.",
+    ],
+  };
+  const last = events[events.length - 1];
+  if (last === undefined) return fallback;
+  const lastText = suggestResponsePaths(last)[0]?.path;
+  const path = discriminatorOf(sample);
+  if (path === undefined) {
+    if (events.length === 1 && lastText !== undefined) {
+      return { responsePath: lastText, notes: [] };
+    }
+    const shared = sharedTextPath(events);
+    if (shared !== undefined) {
+      return {
+        responseEvent: { concat: shared },
+        notes: [
+          `Der Text wird aus allen ${String(events.length)} Ereignissen bei ${shared} zusammengesetzt.`,
+        ],
+      };
+    }
+    return lastText === undefined
+      ? fallback
+      : { responsePath: lastText, notes: ["Gelesen wird das letzte Ereignis des Streams."] };
+  }
+  const values = events.map((event) => stringAt(event, path) ?? "");
+  const lastValue = values[values.length - 1] ?? "";
+  if (values.filter((value) => value === lastValue).length === 1 && lastText !== undefined) {
+    return {
+      responseEvent: { path, equals: lastValue },
+      responsePath: lastText,
+      notes: [
+        `Die Antwort steht im Ereignis ${path} = ${lastValue} bei ${lastText}.`,
+        ...sessionNote(sample, path, lastValue),
+      ],
+    };
+  }
+  const common = mostCommon(values);
+  const group = events.filter((_, index) => values[index] === common);
+  const shared = sharedTextPath(group);
+  if (shared !== undefined && group.length > 1) {
+    return {
+      responseEvent: { path, equals: common, concat: shared },
+      notes: [
+        `Der Text wird aus den ${String(group.length)} Ereignissen ${path} = ${common} bei ${shared} zusammengesetzt.`,
+        ...sessionNote(sample, path, common),
+      ],
+    };
+  }
+  if (lastText !== undefined) {
+    return {
+      responseEvent: { path, equals: lastValue },
+      responsePath: lastText,
+      notes: [`Gelesen wird das letzte Ereignis ${path} = ${lastValue} bei ${lastText}.`],
+    };
+  }
+  return fallback;
+}
+
 export interface DraftOptions {
   /** The question as typed in the interface; found in the body and replaced by {{input}}. */
   question?: string;
@@ -370,6 +552,8 @@ export interface DraftOptions {
   name?: string;
   /** A sample answer of the target for the response path. */
   response?: unknown;
+  /** A sample answer that arrived as a stream; wins over response (issue #106). */
+  stream?: StreamSample;
 }
 
 export interface TargetDraft {
@@ -460,8 +644,24 @@ export function draftTarget(request: CurlRequest, options: DraftOptions): Target
     );
   }
 
-  let responsePath = "$.answer";
-  if (options.response === undefined) {
+  let responsePath: string | undefined = "$.answer";
+  let stream: Pick<StreamSuggestion, "responseEvent"> & {
+    responseFormat?: StreamSample["format"];
+  } = {};
+  if (options.stream !== undefined) {
+    const suggestion = suggestStream(options.stream);
+    stream = {
+      responseFormat: options.stream.format,
+      ...(suggestion.responseEvent === undefined
+        ? {}
+        : { responseEvent: suggestion.responseEvent }),
+    };
+    responsePath = suggestion.responsePath;
+    notes.push(
+      `Die Antwort kommt als ${options.stream.format === "sse" ? "Server-Sent Events" : "NDJSON"} mit ${String(options.stream.events.length)} Ereignissen.`,
+      ...suggestion.notes,
+    );
+  } else if (options.response === undefined) {
     notes.push("Antwortpfad geraten ($.answer). Prüfe ihn mit --response oder --call.");
   } else {
     const candidates = suggestResponsePaths(options.response);
@@ -490,7 +690,8 @@ export function draftTarget(request: CurlRequest, options: DraftOptions): Target
         method: request.method as "POST" | "GET" | "PUT" | "PATCH",
         headers,
         body,
-        responsePath,
+        ...stream,
+        ...(responsePath === undefined ? {} : { responsePath }),
       },
     },
     notes,

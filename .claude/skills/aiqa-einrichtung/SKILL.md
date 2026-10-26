@@ -84,7 +84,7 @@ Wähle mit dem Menschen den Adapter, je nach Antwort aus Schritt 1:
 | Situation                                                          | Adapter             | Was du erfragst                                                                                 |
 | ------------------------------------------------------------------ | ------------------- | ----------------------------------------------------------------------------------------------- |
 | API im Chat-Completions-Format (eigenes Gateway, Ollama, Anbieter) | `openai-compatible` | Basis-URL, Modellname, Auth-Art, optional System-Prompt                                         |
-| andere JSON-API                                                    | `http`              | URL, Methode, Body mit `{{input}}`, Pfad zum Antworttext (`responsePath`), Sitzung ja oder nein |
+| andere HTTP-API (JSON, NDJSON oder Server-Sent Events)             | `http`              | URL, Methode, Body mit `{{input}}`, Pfad zum Antworttext (`responsePath`), Sitzung ja oder nein |
 | nur Web-Oberfläche                                                 | `playwright`        | URL, Selektoren für Eingabe, Senden, Antwort, Wartebedingung, Cookie-Banner, neues Gespräch     |
 | lokales Programm                                                   | `script`            | Kommando mit Argumenten, das JSON auf stdin liest und auf stdout antwortet                      |
 

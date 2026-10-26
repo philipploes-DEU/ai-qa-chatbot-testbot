@@ -252,6 +252,71 @@ describe("HttpTemplateAdapter", () => {
     expect(third.content).not.toBe(first.content);
   });
 
+  it("reads a streamed NDJSON answer and adopts the thread the target assigns (issue #106)", async () => {
+    const target = TargetConfigSchema.parse({
+      ...headerTarget(`${mock.url}/chat/ndjson`),
+      request: {
+        body: '{"message": "{{input}}", "threadId": "{{session}}"}',
+        responseFormat: "ndjson",
+        responseEvent: { path: "$.type", equals: "final" },
+        responsePath: "$.reply",
+      },
+      session: { mode: "body", key: "$.threadId", event: { path: "$.type", equals: "thread" } },
+    });
+    const adapter = new HttpTemplateAdapter(target, { env: {} });
+    const session = await adapter.startSession();
+    const intro = await adapter.send([{ role: "user", content: "Ich heiße Jonas." }], session);
+    expect(intro.content).toBe("Freut mich, Jonas.");
+    expect(intro.data).toEqual({ type: "final", reply: "Freut mich, Jonas." });
+    expect(intro.raw).toMatchObject({ status: 200, attempts: 1, events: 2 });
+    expect(intro.status).toBe(200);
+    // The mock ignores unknown thread ids, so the recall only works with the adopted one.
+    const recall = await adapter.send([{ role: "user", content: "Wie heiße ich?" }], session);
+    expect(recall.content).toBe("Du heißt Jonas.");
+  });
+
+  it("joins a streamed SSE answer from its delta events (issue #106)", async () => {
+    const target = TargetConfigSchema.parse({
+      ...headerTarget(`${mock.url}/chat/sse`),
+      request: {
+        body: '{"message": "{{input}}"}',
+        responseFormat: "sse",
+        responseEvent: { path: "$.data.type", equals: "delta", concat: "$.data.text" },
+      },
+    });
+    const adapter = new HttpTemplateAdapter(target, { env: {} });
+    const response = await adapter.send([
+      { role: "user", content: "Wie lauten die Öffnungszeiten des Kundenservice?" },
+    ]);
+    expect(response.content).toBe(
+      "Unser Kundenservice ist Montag bis Freitag von 9 bis 17 Uhr für Sie da.",
+    );
+    expect(response.latencyMs).toBeGreaterThan(0);
+    expect(response.data).toEqual({ event: "delta", data: { type: "delta", text: "da." } });
+  });
+
+  it("fails with the filter when no streamed event matches and when a line is no JSON", async () => {
+    const miss = TargetConfigSchema.parse({
+      ...headerTarget(`${mock.url}/chat/ndjson`),
+      request: {
+        body: '{"message": "{{input}}"}',
+        responseFormat: "ndjson",
+        responseEvent: { path: "$.type", equals: "done" },
+        responsePath: "$.reply",
+      },
+    });
+    await expect(
+      new HttpTemplateAdapter(miss, { env: {} }).send([{ role: "user", content: "Hallo" }]),
+    ).rejects.toThrow(/\$\.type = done/);
+    const text = TargetConfigSchema.parse({
+      ...headerTarget(`${echo.url}/text`),
+      request: { body: "{}", responseFormat: "ndjson", responsePath: "$.reply" },
+    });
+    await expect(
+      new HttpTemplateAdapter(text, { env: {} }).send([{ role: "user", content: "Hallo" }]),
+    ).rejects.toThrow(/kein NDJSON.*Zeile 1/);
+  });
+
   it("sends no body with GET", async () => {
     const target = TargetConfigSchema.parse({
       ...headerTarget(`${echo.url}/get`),

@@ -95,22 +95,93 @@ export const ExpectationsSchema = z.strictObject({
 });
 export type ExpectationsConfig = z.infer<typeof ExpectationsSchema>;
 
-/** Request template for the http adapter with {{input}} and {{session}} placeholders. */
-export const RequestTemplateSchema = z.strictObject({
-  method: z.enum(["POST", "GET", "PUT", "PATCH"]).default("POST"),
-  headers: z.record(z.string(), z.string()).default({}),
-  body: z.string().min(1),
-  /** JSONPath-like pointer to the answer in the response, for example $.reply. */
-  responsePath: z.string().min(1),
-  /** Defaults for {{vars.name}}; a case overrides them with its own vars (issue #80). */
-  vars: z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/), z.string()).optional(),
+/** How the http adapter reads the answer: one JSON document or a stream (ADR 0024). */
+export const ResponseFormatSchema = z.enum(["json", "ndjson", "sse"]);
+export type ResponseFormat = z.infer<typeof ResponseFormatSchema>;
+
+/** Selects the events of a streamed answer by a value in them, for example $.type equals final. */
+export const EventSelectorSchema = z.strictObject({
+  path: z.string().min(1),
+  equals: z.string().min(1),
 });
+export type EventSelector = z.infer<typeof EventSelectorSchema>;
+
+/**
+ * Which events of a streamed answer carry the text (issue #106, ADR 0024). `path` with
+ * `equals` selects events, without them every event counts. `concat` joins the text at that
+ * path over every selected event; without it `responsePath` reads the last selected event.
+ */
+export const ResponseEventSchema = z
+  .strictObject({
+    path: z.string().min(1).optional(),
+    equals: z.string().min(1).optional(),
+    concat: z.string().min(1).optional(),
+  })
+  .superRefine((event, ctx) => {
+    if ((event.path === undefined) !== (event.equals === undefined)) {
+      ctx.addIssue({ code: "custom", message: "responseEvent braucht path und equals zusammen" });
+    } else if (event.path === undefined && event.concat === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        message: "responseEvent braucht path mit equals oder concat",
+      });
+    }
+  });
+export type ResponseEvent = z.infer<typeof ResponseEventSchema>;
+
+/** Request template for the http adapter with {{input}} and {{session}} placeholders. */
+export const RequestTemplateSchema = z
+  .strictObject({
+    method: z.enum(["POST", "GET", "PUT", "PATCH"]).default("POST"),
+    headers: z.record(z.string(), z.string()).default({}),
+    body: z.string().min(1),
+    /** One JSON document (json), JSON lines (ndjson) or Server-Sent Events (sse). */
+    responseFormat: ResponseFormatSchema.default("json"),
+    /** Which events of a stream carry the text; only with ndjson and sse. */
+    responseEvent: ResponseEventSchema.optional(),
+    /**
+     * JSONPath-like pointer to the answer, for example $.reply. In a stream it reads the chosen
+     * event; with responseEvent.concat it is not used.
+     */
+    responsePath: z.string().min(1).optional(),
+    /** Defaults for {{vars.name}}; a case overrides them with its own vars (issue #80). */
+    vars: z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/), z.string()).optional(),
+  })
+  .superRefine((request, ctx) => {
+    const issue = (path: string, message: string): void => {
+      ctx.addIssue({ code: "custom", path: [path], message });
+    };
+    if (request.responseFormat === "json") {
+      if (request.responsePath === undefined) {
+        issue("responsePath", "Adapter http braucht responsePath, den Pfad zum Antworttext");
+      }
+      if (request.responseEvent !== undefined) {
+        issue("responseEvent", "responseEvent gibt es nur bei responseFormat ndjson oder sse");
+      }
+      return;
+    }
+    if (request.responseEvent?.concat !== undefined) {
+      if (request.responsePath !== undefined) {
+        issue(
+          "responsePath",
+          "mit responseEvent.concat entfällt responsePath, der Text kommt aus den gewählten Ereignissen",
+        );
+      }
+    } else if (request.responsePath === undefined) {
+      issue(
+        "responsePath",
+        `responseFormat ${request.responseFormat} braucht responsePath oder responseEvent.concat`,
+      );
+    }
+  });
 export type RequestTemplate = z.infer<typeof RequestTemplateSchema>;
 
 export const SessionConfigSchema = z
   .strictObject({
     mode: z.enum(["none", "header", "body", "cookie"]).default("none"),
     key: z.string().min(1).optional(),
+    /** In a streamed answer, the event the session value at key is read from (ADR 0024). */
+    event: EventSelectorSchema.optional(),
   })
   .superRefine((session, ctx) => {
     if (session.mode !== "none" && session.key === undefined) {
@@ -118,6 +189,13 @@ export const SessionConfigSchema = z
         code: "custom",
         path: ["key"],
         message: `Session-Modus ${session.mode} braucht einen Schlüssel (key)`,
+      });
+    }
+    if (session.event !== undefined && session.mode !== "body") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["event"],
+        message: "session.event gibt es nur bei mode body",
       });
     }
   });
@@ -191,6 +269,16 @@ export const TargetConfigSchema = z
     }
     if (target.adapter !== "http" && target.request !== undefined) {
       issue("request", "Request-Templates nutzt nur der Adapter http");
+    }
+    if (
+      target.session?.event !== undefined &&
+      (target.request?.responseFormat ?? "json") === "json"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["session", "event"],
+        message: "session.event braucht request.responseFormat ndjson oder sse",
+      });
     }
     if (target.adapter === "playwright" && target.playwright === undefined) {
       issue("playwright", "Adapter playwright braucht einen playwright-Block");

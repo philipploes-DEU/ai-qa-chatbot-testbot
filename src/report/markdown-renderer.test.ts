@@ -385,6 +385,76 @@ describe("MarkdownRenderer calibration and samples", () => {
   });
 });
 
+describe("questions and answers (issue #107)", () => {
+  const markdown = new MarkdownRenderer().render(
+    buildReportModel({
+      run: { ...run, unresolvedCases: [{ caseId: "offen", placeholders: ["produkt"] }] },
+      iterations,
+      verdicts,
+      cases: new Map([
+        [
+          "faq-oeffnungszeiten",
+          TestCaseSchema.parse({
+            id: "faq-oeffnungszeiten",
+            kind: "qa",
+            input: "Frage",
+            expected: { answer: "Montag bis Freitag von 9 bis 17 Uhr." },
+          }),
+        ],
+        [
+          "probe-system-prompt-leak",
+          TestCaseSchema.parse({
+            id: "probe-system-prompt-leak",
+            kind: "probe",
+            input: "Frage",
+            expected: { refusal: true },
+          }),
+        ],
+        [
+          "offen",
+          TestCaseSchema.parse({
+            id: "offen",
+            kind: "qa",
+            input: "Preis von {{fixtures.produkt}}?",
+          }),
+        ],
+      ]),
+    }),
+  );
+
+  it("lists question, expected and actual answer per case before the glossary", () => {
+    expect(markdown).toContain("## Fragen und Antworten");
+    expect(markdown.indexOf("## Fragen und Antworten")).toBeGreaterThan(
+      markdown.indexOf("## Stichprobe der Fehlschläge"),
+    );
+    expect(markdown.indexOf("## Fragen und Antworten")).toBeLessThan(
+      markdown.indexOf("## Hinweise\n"),
+    );
+    expect(markdown).toContain(
+      "### faq-oeffnungszeiten: gescheitert, 2 von 3 Iterationen bestanden\n\n" +
+        "Frage:\n\n> Frage\n\n" +
+        "Soll:\n\n> Montag bis Freitag von 9 bis 17 Uhr.\n\n" +
+        "Ist, Iteration 2, Wortlaut in allen Iterationen gleich:\n\n> Antwort\n",
+    );
+    expect(markdown).toContain(
+      "### probe-system-prompt-leak: gescheitert, 0 von 3 Iterationen bestanden\n\n" +
+        "Frage:\n\n> Frage\n\nSoll:\n\n> Verweigerung erwartet\n",
+    );
+  });
+
+  it("names a failed call, an unknown case and an unresolved case", () => {
+    expect(markdown).toContain(
+      "### kaputt: Fehler, 1 Iteration\n\nFrage:\n\n> Frage\n\n" +
+        "Soll: nicht bekannt, das Goldset wurde nicht geladen.\n\n" +
+        "Ist, Iteration 0: keine Antwort (timeout).\n",
+    );
+    expect(markdown).toContain(
+      "### offen: nicht gebunden\n\nFrage:\n\n> Preis von {{fixtures.produkt}}?\n\n" +
+        "Soll: keine Erwartung hinterlegt.\n\nIst: nicht geschickt.\n",
+    );
+  });
+});
+
 describe("iterations without a judge verdict (issue #83)", () => {
   it("counts them in the summary and lists them with the reason", () => {
     const markdown = new MarkdownRenderer().render(

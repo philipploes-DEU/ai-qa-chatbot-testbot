@@ -2,13 +2,18 @@ import { readFileSync } from "node:fs";
 
 import { describeKappa } from "../stats/kappa.js";
 import {
+  answerLabel,
   describeWithoutJudge,
+  exchangeLabel,
+  EXCHANGES_INTRO,
   formatDateTime,
   formatDuration,
   formatInterval,
   formatNumber,
   formatPercent,
   judgeFailureLabel,
+  missingAnswer,
+  missingExpected,
   REPORT_GLOSSARY,
   SEVERITY_LABELS,
   shortReason,
@@ -487,7 +492,7 @@ function bindingSection(model: ReportModel): string {
     parts.push(
       section(
         "Getauschte Werte seit dem Vorlauf",
-        `<p>Platzhalter, die aus der Datenquelle einen anderen Wert bekamen als im Lauf davor. Ein Unterschied zum Vorlauf kann am Datenstand liegen, nicht am Zielsystem. Die Werte stehen in <span class="mono">runs/&lt;lauf&gt;/bindings.json</span>, nicht im Report, weil sie personenbezogen sein können.</p>\n` +
+        `<p>Platzhalter, die aus der Datenquelle einen anderen Wert bekamen als im Lauf davor. Ein Unterschied zum Vorlauf kann am Datenstand liegen, nicht am Zielsystem. Die Werte stehen in <span class="mono">runs/&lt;lauf&gt;/bindings.json</span>, diese Tabelle nennt nur die Platzhalter. Die gesendeten Fragen unter Fragen und Antworten enthalten die Werte.</p>\n` +
           table(
             ["Platzhalter", "Abfrage"],
             model.bindingChanges.map((change) =>
@@ -589,13 +594,45 @@ function samplesSection(model: ReportModel): string {
           ? ""
           : `<li>Begründung des Judge: ${escapeHtml(sample.judgeReasoning)}</li>`;
       const status = sample.status === undefined ? "" : `, HTTP ${String(sample.status)}`;
-      return `<h3><span class="mono">${escapeHtml(sample.caseId)}</span>, Iteration ${String(sample.index)}${status}</h3>\n<p class="meta">Antwort des Zielsystems</p>\n<blockquote>${escapeHtml(sample.response)}</blockquote>\n<ul>\n${checks}\n${judge}\n</ul>`;
+      const question =
+        sample.question.length === 0
+          ? ""
+          : `<p class="meta">Frage</p>\n<blockquote>${escapeHtml(sample.question.join("\n\n"))}</blockquote>\n`;
+      return `<h3><span class="mono">${escapeHtml(sample.caseId)}</span>, Iteration ${String(sample.index)}${status}</h3>\n${question}<p class="meta">Antwort des Zielsystems</p>\n<blockquote>${escapeHtml(sample.response)}</blockquote>\n<ul>\n${checks}\n${judge}\n</ul>`;
     })
     .join("\n");
   return section(
     "Stichprobe der Fehlschläge",
     `<p>${String(model.samples.length)} von ${String(failed)} gescheiterten Iterationen mit Originalantwort, Fehlschläge mit Judge-Urteil zuerst.</p>\n${body}`,
   );
+}
+
+/** Question, expected and actual answer per case (issue #107). */
+function exchangesSection(model: ReportModel): string {
+  if (model.exchanges.length === 0) return "";
+  const quote = (text: string): string => `<blockquote>${escapeHtml(text)}</blockquote>`;
+  const note = (text: string): string => `<p class="meta">${escapeHtml(text)}</p>`;
+  const body = model.exchanges
+    .map((exchange) => {
+      const heading = `<h3><span class="mono">${escapeHtml(exchange.caseId)}</span>${exchange.draft ? " (Entwurf)" : ""}: ${escapeHtml(exchangeLabel(exchange))}</h3>`;
+      const question =
+        exchange.question.length === 0
+          ? note("Frage: nicht bekannt.")
+          : `${note("Frage")}\n${quote(exchange.question.join("\n\n"))}`;
+      const noExpected = missingExpected(exchange);
+      const expected =
+        noExpected === null
+          ? `${note("Soll")}\n${quote((exchange.expected ?? []).join("\n"))}`
+          : note(noExpected);
+      const noAnswer = missingAnswer(exchange);
+      const answer =
+        noAnswer === null
+          ? `${note(answerLabel(exchange))}\n${quote(exchange.answer ?? "")}`
+          : note(noAnswer);
+      return `${heading}\n${question}\n${expected}\n${answer}`;
+    })
+    .join("\n");
+  return section("Fragen und Antworten", `<p>${escapeHtml(EXCHANGES_INTRO)}</p>\n${body}`);
 }
 
 function metadataSection(model: ReportModel): string {
@@ -725,6 +762,7 @@ export class HtmlRenderer implements ReportRenderer {
         bindingSection(model),
         judgeFailuresSection(model),
         samplesSection(model),
+        exchangesSection(model),
         metadataSection(model),
         glossarySection(),
       ],

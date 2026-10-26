@@ -15,6 +15,8 @@ import {
   CurlImportError,
   draftTarget,
   parseCurl,
+  parseSampleAnswer,
+  type SampleAnswer,
   suggestResponsePaths,
 } from "../importers/curl.js";
 import { importPromptfooCases } from "../importers/promptfoo-cases.js";
@@ -275,8 +277,27 @@ async function importCases(
   return goldsetFile;
 }
 
-/** One call with the copied request, secrets only in memory; returns the JSON answer. */
-async function callOnce(request: ReturnType<typeof parseCurl>, io: CliIo): Promise<unknown> {
+/** A saved answer of the target: JSON, NDJSON or Server-Sent Events (issue #106). */
+async function readSample(file: string, shown: string): Promise<SampleAnswer> {
+  let content: string;
+  try {
+    content = await readFile(file, "utf8");
+  } catch {
+    throw new CliError(`Datei ${shown} nicht gefunden.`);
+  }
+  try {
+    return parseSampleAnswer(content);
+  } catch (error) {
+    if (error instanceof CurlImportError) throw new CliError(`${shown}: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
+ * One call with the copied request, secrets only in memory; returns the answer as JSON or as
+ * the events of a stream, told apart by the content type (issue #106).
+ */
+async function callOnce(request: ReturnType<typeof parseCurl>, io: CliIo): Promise<SampleAnswer> {
   let response: Response;
   try {
     response = await fetch(request.url, {
@@ -293,7 +314,10 @@ async function callOnce(request: ReturnType<typeof parseCurl>, io: CliIo): Promi
       `Testaufruf fehlgeschlagen: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  io.writeOut(`Testaufruf: HTTP ${String(response.status)}.`);
+  const contentType = response.headers.get("content-type") ?? "";
+  io.writeOut(
+    `Testaufruf: HTTP ${String(response.status)}${contentType === "" ? "" : `, ${contentType}`}.`,
+  );
   const text = await response.text();
   if (!response.ok) {
     throw new CliError(
@@ -301,9 +325,10 @@ async function callOnce(request: ReturnType<typeof parseCurl>, io: CliIo): Promi
     );
   }
   try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    throw new CliError("Die Antwort ist kein JSON, der Adapter http braucht eine JSON-Antwort.");
+    return parseSampleAnswer(text, contentType);
+  } catch (error) {
+    if (error instanceof CurlImportError) throw new CliError(error.message);
+    throw error;
   }
 }
 
@@ -326,21 +351,26 @@ async function importCurl(
   let draft;
   try {
     const request = parseCurl(command);
-    let response: unknown;
+    let sample: SampleAnswer | undefined;
     if (options.response !== undefined) {
-      response = await readJson(path.resolve(io.cwd, options.response), options.response);
+      sample = await readSample(path.resolve(io.cwd, options.response), options.response);
     } else if (options.call === true) {
-      response = await callOnce(request, io);
+      sample = await callOnce(request, io);
     }
-    if (response !== undefined) {
-      for (const candidate of suggestResponsePaths(response).slice(0, 3)) {
+    if (sample?.format === "json") {
+      for (const candidate of suggestResponsePaths(sample.payload).slice(0, 3)) {
         io.writeOut(`  Kandidat ${candidate.path}: ${candidate.excerpt}`);
       }
+    } else if (sample !== undefined) {
+      io.writeOut(
+        `  Antwort als ${sample.format === "sse" ? "Server-Sent Events" : "NDJSON"} mit ${String(sample.events.length)} Ereignissen, Format und Ereignisfilter stehen im Entwurf.`,
+      );
     }
     draft = draftTarget(request, {
       ...(options.question !== undefined ? { question: options.question } : {}),
       ...(options.name !== undefined ? { name: options.name } : {}),
-      ...(response !== undefined ? { response } : {}),
+      ...(sample?.format === "json" ? { response: sample.payload } : {}),
+      ...(sample !== undefined && sample.format !== "json" ? { stream: sample } : {}),
     });
   } catch (error) {
     if (error instanceof CurlImportError) throw new CliError(error.message);

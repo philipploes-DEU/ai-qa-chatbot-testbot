@@ -26,7 +26,7 @@ export function renderWorkflow(planPath: string): string {
     "  contents: write # nur nötig, wenn commit-results unten auf true steht",
     "",
     "env:",
-    "  AIQA_VERSION: v0.9.1 # Version von AI QA, die der Lauf nutzt",
+    "  AIQA_VERSION: v0.10.0 # Version von AI QA, die der Lauf nutzt",
     `  AIQA_PLAN: ${planPath}`,
     "  # Auf true setzen, um runs/ und reports/ nach jedem Lauf zu committen. Dann vergleicht",
     "  # aiqa compare mit dem Vorlauf und das Regressions-Gate greift.",

@@ -223,6 +223,25 @@ describe("drafts", () => {
   });
 });
 
+describe("empty answers (issue #113)", () => {
+  it("counts iterations whose answer is empty or whitespace, drafts aside", () => {
+    const model = buildReportModel({
+      run: { ...run, draftCases: ["entwurf"] },
+      iterations: [
+        iteration("faq", 0),
+        { ...iteration("faq", 1), response: "" },
+        { ...iteration("faq", 2), response: " \n" },
+        iteration("kaputt", 0, "timeout"),
+        { ...iteration("entwurf", 0), response: "" },
+      ],
+      verdicts: [verdict("faq", 1, "empty", false, "leere Antwort")],
+      cases,
+    });
+    expect(model.totals.emptyAnswers).toBe(2);
+    expect(buildReportModel({ run, iterations, verdicts, cases }).totals.emptyAnswers).toBe(0);
+  });
+});
+
 describe("questions and answers (issue #107)", () => {
   const ask = (content: string) => [{ role: "user" as const, content }];
   const qaCases = new Map([

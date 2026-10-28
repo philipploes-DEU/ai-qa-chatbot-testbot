@@ -213,6 +213,14 @@ describe("HtmlRenderer", () => {
     }
   });
 
+  it("shows a tile for empty answers only when there are some (issue #113)", () => {
+    const withEmpty = new HtmlRenderer().render(
+      model({ iterations: [iteration("faq", 0), iteration("faq", 1, "")] }),
+    );
+    expect(withEmpty).toContain("<dt>Leere Antworten</dt><dd>1</dd>");
+    expect(new HtmlRenderer().render(model())).not.toContain("<dt>Leere Antworten</dt>");
+  });
+
   it("lists question, expected and actual answer per case, escaped (issue #107)", () => {
     const page = new HtmlRenderer().render(
       model({

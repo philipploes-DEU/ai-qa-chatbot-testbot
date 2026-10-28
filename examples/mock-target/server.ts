@@ -19,6 +19,7 @@ import type { AddressInfo } from "node:net";
  *   POST /chat/ndjson            { message, threadId? } answered as NDJSON: a thread event with
  *                                the id the mock assigned (an unknown or missing id opens a new
  *                                thread), then a final event with the reply (issue #106)
+ *   POST /chat/ndjson/strict     same, but an unknown threadId answers HTTP 404 (issue #111)
  *   POST /chat/sse               { message } answered as Server-Sent Events: delta events with
  *                                the reply in pieces, a done event, then data: [DONE]
  *   POST /v1/chat/completions    OpenAI chat completions shape, answers from the same table;
@@ -255,12 +256,30 @@ export function createMockTargetServer(options: MockTargetOptions = {}): Server 
     sendJson(response, 200, { reply, sessionId: id }, id === null ? {} : { "x-session-id": id });
   }
 
-  /** NDJSON with a thread the mock assigns: an unknown or missing threadId opens a new one. */
-  async function handleNdjson(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  /**
+   * NDJSON with a thread the mock assigns: an unknown or missing threadId opens a new one. The
+   * strict variant answers HTTP 404 to an unknown id, like targets that assign ids themselves
+   * (issue #111); a missing or empty id opens a thread there too.
+   */
+  async function handleNdjson(
+    request: IncomingMessage,
+    response: ServerResponse,
+    strict = false,
+  ): Promise<void> {
     const body = await readBody(request);
     const record =
       typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
-    const given = typeof record.threadId === "string" ? record.threadId : undefined;
+    const given =
+      typeof record.threadId === "string" && record.threadId !== "" ? record.threadId : undefined;
+    if (strict && given !== undefined && !threads.has(given)) {
+      sendJson(response, 404, {
+        error: {
+          code: "THREAD_NOT_FOUND",
+          message: "Thread not found or expired; start a new conversation.",
+        },
+      });
+      return;
+    }
     const threadId = given !== undefined && threads.has(given) ? given : randomUUID();
     let thread = threads.get(threadId);
     if (thread === undefined) {
@@ -349,6 +368,9 @@ export function createMockTargetServer(options: MockTargetOptions = {}): Server 
       return handleChat(request, response, "limited");
     }
     if (method === "POST" && pathname === "/chat/ndjson") return handleNdjson(request, response);
+    if (method === "POST" && pathname === "/chat/ndjson/strict") {
+      return handleNdjson(request, response, true);
+    }
     if (method === "POST" && pathname === "/chat/sse") return handleSse(request, response);
     if (method === "POST" && pathname === "/v1/chat/completions") {
       return handleCompletions(request, response);

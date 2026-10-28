@@ -266,6 +266,9 @@ function tilesSection(model: ReportModel): string {
     ...(totals.unresolvedCases > 0
       ? [["Nicht gebunden (unresolved)", String(totals.unresolvedCases)] as [string, string]]
       : []),
+    ...(totals.emptyAnswers > 0
+      ? [["Leere Antworten", String(totals.emptyAnswers)] as [string, string]]
+      : []),
     ...(totals.withoutJudgeVerdict.refused + totals.withoutJudgeVerdict.errors > 0
       ? [
           [

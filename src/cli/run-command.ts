@@ -7,6 +7,7 @@ import { toPosix } from "../io/files.js";
 import { sameModelWarning } from "../domain/judge-hygiene.js";
 import { createJudge } from "../judge/create-judge.js";
 import { judgeFailureLabel } from "../report/markdown-renderer.js";
+import { callsOnDay } from "../runner/daily-calls.js";
 import { loadPlan } from "../runner/load-plan.js";
 import { type JudgeSources, loadJudgeSources } from "./judge-sources.js";
 import { callsPerIteration, runPlan, type RunSummary } from "../runner/run-plan.js";
@@ -28,6 +29,8 @@ export interface RunCommandOptions {
   allowSameModel?: boolean;
   /** Bind the placeholders {{fixtures.name}} anew before the run (issue #93). */
   resolve?: boolean;
+  /** Clock for the daily call limit, for tests (issue #112). */
+  now?: () => Date;
 }
 
 /** The binding of the latest earlier run against the same target, for "vorher" in the report. */
@@ -252,10 +255,27 @@ export async function executeRun(
     );
   }
   const perDay = target.rateLimit.maxCallsPerDay;
-  if (perDay !== undefined && expectedCalls > perDay) {
-    io.writeErr(
-      `Hinweis: Der Plan braucht ${String(expectedCalls)} Aufrufe, das Zielsystem erlaubt ${String(perDay)} am Tag (rateLimit.maxCallsPerDay). Der Lauf bricht ab, sobald es mit HTTP 429 ablehnt.`,
+  if (perDay !== undefined) {
+    // The calls of earlier runs today count against the limit too (issue #112).
+    const today = await callsOnDay(store, target.name, (options.now ?? (() => new Date()))());
+    io.writeOut(
+      `Tageslimit: heute (${today.day}, ${today.timeZone}) schon ${String(today.calls)} von ${String(perDay)} Aufrufen an ${target.name}` +
+        (today.runs === 0
+          ? ""
+          : ` in ${String(today.runs)} ${today.runs === 1 ? "Lauf" : "Läufen"}`) +
+        (today.withoutUsage === 0
+          ? "."
+          : `, ${String(today.withoutUsage)} ${today.withoutUsage === 1 ? "Lauf" : "Läufe"} ohne erfassten Aufwand nicht gezählt.`),
     );
+    if (today.calls + expectedCalls > perDay) {
+      const text = `Heute schon ${String(today.calls)} Aufrufe, der Plan braucht ${String(expectedCalls)}, das Tageslimit ist ${String(perDay)} (rateLimit.maxCallsPerDay).`;
+      if (target.rateLimit.enforceDaily === true) {
+        throw new CliError(`${text} Der Lauf startet nicht (rateLimit.enforceDaily).`);
+      }
+      io.writeErr(
+        `Hinweis: ${text} Der Lauf bricht ab, sobald das Zielsystem mit HTTP 429 ablehnt.`,
+      );
+    }
   }
   const maxCallsPerRun = workspace.config.budget?.maxCallsPerRun;
   if (maxCallsPerRun !== undefined && maxCallsPerRun < maxCalls) {

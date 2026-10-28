@@ -4,9 +4,10 @@ import { makeCase, makeResponse } from "../../tests/helpers/cases.js";
 import { createDefaultChecks, runChecks } from "./run-checks.js";
 
 describe("createDefaultChecks", () => {
-  it("contains the nine content checks without a latency expectation", () => {
+  it("contains the ten content checks without a latency expectation", () => {
     const names = createDefaultChecks({}).map((check) => check.name);
     expect(names).toEqual([
+      "empty",
       "mustContain",
       "mustNotContain",
       "mustNotClaim",
@@ -38,6 +39,7 @@ describe("runChecks", () => {
     );
 
     expect(results.map((result) => result.criteria[0]?.name)).toEqual([
+      "empty",
       "mustNotContain",
       "refusal",
       "leak",

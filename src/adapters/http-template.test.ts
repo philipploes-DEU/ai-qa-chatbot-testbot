@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type MockTarget, startMockTarget } from "../../examples/mock-target/server.js";
 import { type TargetConfig, TargetConfigSchema } from "../domain/target-config.js";
 import { HttpStatusError } from "./errors.js";
-import { HttpTemplateAdapter } from "./http-template.js";
+import { HttpTemplateAdapter, omitFields } from "./http-template.js";
 import { ResponsePathError } from "./response-path.js";
 
 /**
@@ -79,6 +79,18 @@ function headerTarget(endpoint: string): TargetConfig {
     session: { mode: "header", key: "X-Session-Id" },
   });
 }
+
+describe("omitFields (issue #111)", () => {
+  it("removes every object field whose value is the marker, at any depth", () => {
+    expect(omitFields('{"a":"X","b":{"c":"X","d":1},"e":["X"]}', "X")).toBe(
+      '{"b":{"d":1},"e":["X"]}',
+    );
+  });
+
+  it("refuses a body that is no JSON object", () => {
+    expect(() => omitFields("a=X", "X")).toThrow(/JSON-Objekt/);
+  });
+});
 
 describe("HttpTemplateAdapter", () => {
   let mock: MockTarget;
@@ -273,6 +285,79 @@ describe("HttpTemplateAdapter", () => {
     // The mock ignores unknown thread ids, so the recall only works with the adopted one.
     const recall = await adapter.send([{ role: "user", content: "Wie heiße ich?" }], session);
     expect(recall.content).toBe("Du heißt Jonas.");
+  });
+
+  it("omits or empties the session field in the first turn and adopts the target's id (issue #111)", async () => {
+    for (const initial of ["omit", "empty"] as const) {
+      const target = TargetConfigSchema.parse({
+        ...headerTarget(`${mock.url}/chat/ndjson/strict`),
+        request: {
+          body: '{"message": "{{input}}", "threadId": "{{session}}"}',
+          responseFormat: "ndjson",
+          responseEvent: { path: "$.type", equals: "final" },
+          responsePath: "$.reply",
+        },
+        session: {
+          mode: "body",
+          key: "$.threadId",
+          event: { path: "$.type", equals: "thread" },
+          initial,
+        },
+      });
+      const adapter = new HttpTemplateAdapter(target, { env: {} });
+      const session = await adapter.startSession();
+      const intro = await adapter.send([{ role: "user", content: "Ich heiße Jonas." }], session);
+      expect(intro.content).toBe("Freut mich, Jonas.");
+      const recall = await adapter.send([{ role: "user", content: "Wie heiße ich?" }], session);
+      expect(recall.content).toBe("Du heißt Jonas.");
+    }
+  });
+
+  it("fails the first turn of a strict target with the generated id, the default (issue #111)", async () => {
+    const target = TargetConfigSchema.parse({
+      ...headerTarget(`${mock.url}/chat/ndjson/strict`),
+      request: {
+        body: '{"message": "{{input}}", "threadId": "{{session}}"}',
+        responseFormat: "ndjson",
+        responseEvent: { path: "$.type", equals: "final" },
+        responsePath: "$.reply",
+      },
+      session: { mode: "body", key: "$.threadId", event: { path: "$.type", equals: "thread" } },
+    });
+    const adapter = new HttpTemplateAdapter(target, { env: {} });
+    const session = await adapter.startSession();
+    await expect(
+      adapter.send([{ role: "user", content: "Ich heiße Jonas." }], session),
+    ).rejects.toThrow(/http 404.*THREAD_NOT_FOUND/);
+  });
+
+  it("names the key when the target assigns no session in the first turn (issue #111)", async () => {
+    const target = TargetConfigSchema.parse({
+      ...headerTarget(`${echo.url}/merge`),
+      request: {
+        body: '{"query": "{{input}}", "session": "{{session}}"}',
+        responsePath: "$.reply",
+      },
+      session: { mode: "body", key: "$.session", initial: "omit" },
+    });
+    const adapter = new HttpTemplateAdapter(target, { env: {} });
+    const session = await adapter.startSession();
+    await expect(adapter.send([{ role: "user", content: "x" }], session)).rejects.toThrow(
+      /keine Sitzung.*\$\.session/,
+    );
+  });
+
+  it("refuses to omit the session field when the body is no JSON object (issue #111)", async () => {
+    const target = TargetConfigSchema.parse({
+      ...headerTarget(`${echo.url}/merge`),
+      request: { body: "query={{input}}&session={{session}}", responsePath: "$.reply" },
+      session: { mode: "body", key: "$.session", initial: "omit" },
+    });
+    const adapter = new HttpTemplateAdapter(target, { env: {} });
+    const session = await adapter.startSession();
+    await expect(adapter.send([{ role: "user", content: "x" }], session)).rejects.toThrow(
+      /initial.*JSON-Objekt/,
+    );
   });
 
   it("joins a streamed SSE answer from its delta events (issue #106)", async () => {

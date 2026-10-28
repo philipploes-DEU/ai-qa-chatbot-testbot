@@ -80,6 +80,7 @@ function expectedFrom(
     mustNotClaim: [],
     mustMatch: [],
     mustNotMatch: [],
+    allowEmpty: false,
     ...(template.expected.refusal === undefined ? {} : { refusal: template.expected.refusal }),
   };
 }

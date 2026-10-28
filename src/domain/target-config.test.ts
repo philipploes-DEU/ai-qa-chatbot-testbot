@@ -280,6 +280,42 @@ describe("streamed answers (issue #106)", () => {
   });
 });
 
+describe("daily call limit (issue #112)", () => {
+  it("accepts enforceDaily with a daily limit and rejects it without one", () => {
+    const withLimit = TargetConfigSchema.safeParse({
+      ...httpTarget,
+      rateLimit: { maxCallsPerDay: 35, enforceDaily: true },
+    });
+    expect(withLimit.success).toBe(true);
+    const withoutLimit = TargetConfigSchema.safeParse({
+      ...httpTarget,
+      rateLimit: { enforceDaily: true },
+    });
+    expect(failurePaths(withoutLimit)).toContain("rateLimit.enforceDaily");
+  });
+});
+
+describe("first turn of a body session (issue #111)", () => {
+  it("defaults to generated and accepts omit and empty with mode body", () => {
+    expect(TargetConfigSchema.parse(httpTarget).session?.initial).toBe("generated");
+    for (const initial of ["omit", "empty"]) {
+      const result = TargetConfigSchema.safeParse({
+        ...httpTarget,
+        session: { mode: "body", key: "$.threadId", initial },
+      });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it("rejects omit and empty for the other modes", () => {
+    const result = TargetConfigSchema.safeParse({
+      ...httpTarget,
+      session: { mode: "header", key: "X-Session-Id", initial: "omit" },
+    });
+    expect(failurePaths(result)).toContain("session.initial");
+  });
+});
+
 describe("openai block", () => {
   const openAiTarget = {
     name: "bot",

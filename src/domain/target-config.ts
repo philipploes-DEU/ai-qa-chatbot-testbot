@@ -56,18 +56,33 @@ export const AuthSchema = z.discriminatedUnion("type", [
 ]);
 export type AuthConfig = z.infer<typeof AuthSchema>;
 
-export const RateLimitSchema = z.strictObject({
-  requestsPerMinute: z.number().int().positive().default(60),
-  concurrency: z.number().int().positive().default(1),
-  /** Behaviour on HTTP 429 and 503. */
-  backoff: z.enum(["none", "exponential"]).default("exponential"),
-  maxRetries: z.number().int().nonnegative().default(3),
-  /**
-   * Calls the target allows per day, for example the daily limit of a test account. aiqa run
-   * warns before the first call when a plan needs more (issue #96).
-   */
-  maxCallsPerDay: z.number().int().positive().optional(),
-});
+export const RateLimitSchema = z
+  .strictObject({
+    requestsPerMinute: z.number().int().positive().default(60),
+    concurrency: z.number().int().positive().default(1),
+    /** Behaviour on HTTP 429 and 503. */
+    backoff: z.enum(["none", "exponential"]).default("exponential"),
+    maxRetries: z.number().int().nonnegative().default(3),
+    /**
+     * Calls the target allows per day, for example the daily limit of a test account. aiqa run
+     * warns before the first call when a plan needs more (issue #96).
+     */
+    maxCallsPerDay: z.number().int().positive().optional(),
+    /**
+     * true: aiqa run refuses to start when the calls of today's runs plus the plan exceed
+     * maxCallsPerDay, instead of warning (issue #112).
+     */
+    enforceDaily: z.boolean().optional(),
+  })
+  .superRefine((rateLimit, ctx) => {
+    if (rateLimit.enforceDaily === true && rateLimit.maxCallsPerDay === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["enforceDaily"],
+        message: "rateLimit.enforceDaily braucht maxCallsPerDay",
+      });
+    }
+  });
 export type RateLimitConfig = z.infer<typeof RateLimitSchema>;
 
 /** Technical limits enforced by AI QA. A hit counts as an error of the iteration. */
@@ -182,6 +197,12 @@ export const SessionConfigSchema = z
     key: z.string().min(1).optional(),
     /** In a streamed answer, the event the session value at key is read from (ADR 0024). */
     event: EventSelectorSchema.optional(),
+    /**
+     * What {{session}} is in the first turn of a body session (issue #111): a generated id,
+     * the field left out of the JSON body (omit) or an empty string (empty). From the second
+     * turn on the id the target assigned is used.
+     */
+    initial: z.enum(["generated", "omit", "empty"]).default("generated"),
   })
   .superRefine((session, ctx) => {
     if (session.mode !== "none" && session.key === undefined) {
@@ -196,6 +217,13 @@ export const SessionConfigSchema = z
         code: "custom",
         path: ["event"],
         message: "session.event gibt es nur bei mode body",
+      });
+    }
+    if (session.initial !== "generated" && session.mode !== "body") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["initial"],
+        message: "session.initial omit und empty gibt es nur bei mode body",
       });
     }
   });

@@ -458,21 +458,50 @@ function mostCommon(values: readonly string[]): string {
   return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
 }
 
+export interface StreamOptions {
+  /**
+   * Whether the copied request already sends a session or thread field. false adds the hint
+   * that the first turn goes without an id (session.initial omit, issue #111).
+   */
+  bodyHasSession?: boolean;
+}
+
+/** A top level string field that looks like a session or thread id, for the session hints. */
+function sessionKeyOf(record: unknown): string | undefined {
+  if (typeof record !== "object" || record === null || Array.isArray(record)) return undefined;
+  return Object.keys(record as Record<string, unknown>).find(
+    (name) =>
+      SESSION_KEY.test(name) && typeof (record as Record<string, unknown>)[name] === "string",
+  );
+}
+
+/** The session block to suggest, with initial omit when the copied call sent no session. */
+function sessionBlock(key: string, event: string | undefined, bodyHasSession?: boolean): string {
+  const omit = bodyHasSession === false ? ", initial: omit" : "";
+  return `session mit mode: body, key: ${key}${event === undefined ? "" : `, ${event}`}${omit} und {{session}} im Body`;
+}
+
+function omitHint(bodyHasSession?: boolean): string {
+  return bodyHasSession === false
+    ? " Der kopierte Aufruf schickt keine Sitzung, der erste Zug geht also ohne ID (initial: omit)."
+    : "";
+}
+
 /** A note about an event that carries a thread or session id, for session.event (ADR 0024). */
-function sessionNote(sample: StreamSample, path: string, answerValue: string): string[] {
+function sessionNote(
+  sample: StreamSample,
+  path: string,
+  answerValue: string,
+  options: StreamOptions = {},
+): string[] {
   const prefix = sample.format === "sse" ? "$.data." : "$.";
   for (const event of sample.events) {
     const value = stringAt(event, path);
     if (value === undefined || value === answerValue) continue;
-    const record = sample.format === "sse" ? readPath(event, "$.data") : event;
-    if (typeof record !== "object" || record === null) continue;
-    const key = Object.keys(record as Record<string, unknown>).find(
-      (name) =>
-        SESSION_KEY.test(name) && typeof (record as Record<string, unknown>)[name] === "string",
-    );
+    const key = sessionKeyOf(sample.format === "sse" ? readPath(event, "$.data") : event);
     if (key === undefined) continue;
     return [
-      `Das Ereignis ${path} = ${value} enthält ${prefix}${key}, vermutlich die Sitzung. Führt das Zielsystem Gespräche damit, ergänze session mit mode: body, key: ${prefix}${key}, event: { path: ${path}, equals: ${value} } und {{session}} im Body.`,
+      `Das Ereignis ${path} = ${value} enthält ${prefix}${key}, vermutlich die Sitzung. Führt das Zielsystem Gespräche damit, ergänze ${sessionBlock(`${prefix}${key}`, `event: { path: ${path}, equals: ${value} }`, options.bodyHasSession)}.${omitHint(options.bodyHasSession)}`,
     ];
   }
   return [];
@@ -482,7 +511,7 @@ function sessionNote(sample: StreamSample, path: string, answerValue: string): s
  * Format, event filter and text path for a streamed sample answer (issue #106): the last event
  * when its kind appears once and carries text, else the text joined over the most common kind.
  */
-export function suggestStream(sample: StreamSample): StreamSuggestion {
+export function suggestStream(sample: StreamSample, options: StreamOptions = {}): StreamSuggestion {
   const { events } = sample;
   const fallback: StreamSuggestion = {
     responsePath: "$.answer",
@@ -519,7 +548,7 @@ export function suggestStream(sample: StreamSample): StreamSuggestion {
       responsePath: lastText,
       notes: [
         `Die Antwort steht im Ereignis ${path} = ${lastValue} bei ${lastText}.`,
-        ...sessionNote(sample, path, lastValue),
+        ...sessionNote(sample, path, lastValue, options),
       ],
     };
   }
@@ -531,7 +560,7 @@ export function suggestStream(sample: StreamSample): StreamSuggestion {
       responseEvent: { path, equals: common, concat: shared },
       notes: [
         `Der Text wird aus den ${String(group.length)} Ereignissen ${path} = ${common} bei ${shared} zusammengesetzt.`,
-        ...sessionNote(sample, path, common),
+        ...sessionNote(sample, path, common, options),
       ],
     };
   }
@@ -580,6 +609,7 @@ export function draftTarget(request: CurlRequest, options: DraftOptions): Target
     throw new CurlImportError("Der Body ist kein JSON. Die Vorlage bitte von Hand anlegen.");
   }
   const found = findQuestion(parsed, options.question);
+  const bodyHasSession = sessionKeyOf(parsed) !== undefined;
   if (found === undefined) {
     throw new CurlImportError(
       options.question === undefined
@@ -649,7 +679,7 @@ export function draftTarget(request: CurlRequest, options: DraftOptions): Target
     responseFormat?: StreamSample["format"];
   } = {};
   if (options.stream !== undefined) {
-    const suggestion = suggestStream(options.stream);
+    const suggestion = suggestStream(options.stream, { bodyHasSession });
     stream = {
       responseFormat: options.stream.format,
       ...(suggestion.responseEvent === undefined
@@ -675,9 +705,16 @@ export function draftTarget(request: CurlRequest, options: DraftOptions): Target
         notes.push(`Weitere Kandidaten für den Antwortpfad: ${others.join(", ")}.`);
     }
   }
-  notes.push(
-    "Sitzungen erkennt der Import nicht. Führt das Zielsystem Gespräche über eine Sitzungs-ID, ergänze session.",
-  );
+  const sessionKey = options.stream === undefined ? sessionKeyOf(options.response) : undefined;
+  if (sessionKey !== undefined) {
+    notes.push(
+      `Die Antwort enthält $.${sessionKey}, vermutlich die Sitzung. Führt das Zielsystem Gespräche damit, ergänze ${sessionBlock(`$.${sessionKey}`, undefined, bodyHasSession)}.${omitHint(bodyHasSession)}`,
+    );
+  } else if (!notes.some((note) => note.includes("vermutlich die Sitzung"))) {
+    notes.push(
+      "Sitzungen erkennt der Import nicht. Führt das Zielsystem Gespräche über eine Sitzungs-ID, ergänze session.",
+    );
+  }
 
   const host = new URL(request.url).hostname.replace(/[^A-Za-z0-9.-]/g, "-");
   return {

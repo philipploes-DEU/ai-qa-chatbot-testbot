@@ -1,4 +1,5 @@
 export * from "./check.js";
+export * from "./empty.js";
 export * from "./latency.js";
 export * from "./leak.js";
 export * from "./must-contain.js";

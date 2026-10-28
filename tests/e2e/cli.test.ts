@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -1077,7 +1077,7 @@ describe("aiqa run against a target at its daily limit (issue #96)", () => {
     expect(await runCli(["run", "--plan", "goldsets/plan.yaml"], io)).toBe(2);
     const err = io.err.join("\n");
     expect(err).toContain(
-      "Hinweis: Der Plan braucht 2 Aufrufe, das Zielsystem erlaubt 1 am Tag (rateLimit.maxCallsPerDay).",
+      "Hinweis: Heute schon 0 Aufrufe, der Plan braucht 2, das Tageslimit ist 1 (rateLimit.maxCallsPerDay).",
     );
     expect(err).toContain("Abbruch: Das Zielsystem lehnt weitere Anfragen ab (HTTP 429)");
     expect(err).toContain("Tageslimit erreicht");
@@ -1090,6 +1090,31 @@ describe("aiqa run against a target at its daily limit (issue #96)", () => {
     };
     expect(run.status).toBe("aborted");
     expect(run.usage?.calls).toBe(1);
+  });
+
+  it("counts the calls of earlier runs on the same day and can refuse to start (issue #112)", async () => {
+    const second = collectIo(tempDir);
+    expect(await runCli(["run", "--plan", "goldsets/plan.yaml"], second)).toBe(2);
+    expect(second.out.join("\n")).toMatch(
+      /Tageslimit: heute \(\d{4}-\d{2}-\d{2}, [^)]+\) schon 1 von 1 Aufrufen an gedrosselt in 1 Lauf\./,
+    );
+    expect(second.err.join("\n")).toContain(
+      "Hinweis: Heute schon 1 Aufrufe, der Plan braucht 2, das Tageslimit ist 1 (rateLimit.maxCallsPerDay).",
+    );
+
+    const config = await readFile(path.join(tempDir, "aiqa.yaml"), "utf8");
+    await writeFile(
+      path.join(tempDir, "aiqa.yaml"),
+      config.replace("maxCallsPerDay: 1 }", "maxCallsPerDay: 1, enforceDaily: true }"),
+      "utf8",
+    );
+    const runsBefore = (await readdir(path.join(tempDir, "runs"))).length;
+    const third = collectIo(tempDir);
+    expect(await runCli(["run", "--plan", "goldsets/plan.yaml"], third)).toBe(1);
+    expect(third.err.join("\n")).toContain(
+      "Heute schon 2 Aufrufe, der Plan braucht 2, das Tageslimit ist 1 (rateLimit.maxCallsPerDay). Der Lauf startet nicht (rateLimit.enforceDaily).",
+    );
+    expect((await readdir(path.join(tempDir, "runs"))).length).toBe(runsBefore);
   });
 });
 

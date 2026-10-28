@@ -178,6 +178,7 @@ describe("runPlan", () => {
       (verdict) => verdict.caseId === "faq-001" && verdict.index === 0,
     );
     expect(faq.map((verdict) => verdict.criteria[0]?.name)).toEqual([
+      "empty",
       "mustContain",
       "leak",
       "latency",

@@ -3,6 +3,18 @@
 Alle nennenswerten Änderungen an AI QA. Erzeugt aus Conventional Commits mit git-cliff.
 Issue-Nummern beziehen sich auf das private Entwicklungs-Repository (ADR 0023).
 
+## [0.11.0] vom 28.10.2026
+
+### Neue Funktionen
+
+- **adapters:** Let the first turn of a body session go without an own id (#111) (#117)
+- **runner:** Count the calls of earlier runs of the day against the daily limit (#112) (#118)
+
+### Fehlerbehebungen
+
+- **checks:** Recognise refusals written with typographic apostrophes (#114) (#115)
+- **checks:** Fail empty answers with the check empty and count them in the report (#113) (#116)
+
 ## [0.10.0] vom 26.10.2026
 
 ### Neue Funktionen

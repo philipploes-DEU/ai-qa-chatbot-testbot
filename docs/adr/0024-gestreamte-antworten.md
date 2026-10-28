@@ -71,3 +71,7 @@ Sitzungen. Bei der Einrichtung eines Agenten kam die Antwort in dieser Form:
   eigenes Thema.
 - Die Rohdaten einer Antwort halten bei Streams die Zahl der Ereignisse und einen Auszug, nicht
   die Ereignisse selbst.
+- Nachtrag 28.10.2026 (Issue #111): `session.initial` regelt den ersten Zug einer
+  `body`-Sitzung. `generated` schickt wie bisher eine eigene UUID, `omit` lässt das Feld mit
+  `{{session}}` aus dem JSON-Body weg, `empty` schickt einen leeren Wert. Kommt im ersten Zug
+  keine ID zurück, scheitert die Iteration mit dem Pfad, statt mit leerer ID weiterzumachen.

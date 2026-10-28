@@ -6,7 +6,7 @@ bewertet die nicht-deterministischen Antworten mit LLM-Judges nach Rubrik, ergä
 deterministische Checks, sichert Fehlerquoten über mehrere Iterationen statistisch ab und erzeugt
 Reports.
 
-Status: Version 0.10.0. Adapter für HTTP mit JSON und gestreamten Antworten (NDJSON,
+Status: Version 0.11.0. Adapter für HTTP mit JSON und gestreamten Antworten (NDJSON,
 Server-Sent Events), OpenAI-kompatible Schnittstellen, Browser und lokale Kommandos, Login mit
 kurzlebigen Tokens, Einrichtung aus einem cURL-Aufruf, Variablen je Fall, Platzhalter mit Werten
 aus Datenquellen, erwarteter HTTP-Status, Folgeaufrufe im Dialog, Judge mit Kalibrierung und
@@ -216,7 +216,8 @@ antwort.json`) oder aus einem Testaufruf mit dem kopierten Aufruf (`--call`). Oh
 - Streamt das Zielsystem (`Content-Type` `application/x-ndjson` oder `text/event-stream`, sonst
   erkannt an der Form), setzt der Import `responseFormat`, einen Ereignisfilter und den
   Antwortpfad in den Entwurf und nennt das Ereignis, das eine Thread- oder Sitzungs-ID trägt
-  (Abschnitt "Gestreamte Antworten" unten).
+  (Abschnitt "Gestreamte Antworten" unten). Trägt eine Antwort eine Sitzungs-ID, der kopierte
+  Aufruf aber kein Sitzungsfeld, empfiehlt der Hinweis `session.initial: omit`.
 - Der Entwurf landet in `aiqa.target-entwurf.yaml` neben der `aiqa.yaml`. Erst `--apply` ersetzt
   den target-Block. Danach `aiqa validate`.
 - Die kopierte Datei enthält Zugangsdaten. Lösche sie nach dem Import.
@@ -273,8 +274,13 @@ vars: { mandate: 11111111-aaaa-bbbb-cccc-000000000001 } # eigenes Mandat
 Sitzungen: bei `header` schickt AI QA eine eigene Sitzungs-ID im Header `key` und übernimmt den
 Wert, den das Zielsystem im gleichen Antwort-Header zurückgibt. Bei `body` steht `{{session}}`
 im Template und `key` ist der Pfad im Antwort-JSON, aus dem die vom Zielsystem vergebene ID
-übernommen wird. Bei `cookie` ist `key` der Name des Cookies, das das Zielsystem setzt. Ein
-Dialog läuft Runde für Runde in derselben Sitzung (Abschnitt 5, Dialogszenario).
+übernommen wird. `initial` regelt dort den ersten Zug: `generated` (Standard) schickt eine eigene
+UUID, `omit` lässt das Feld mit `{{session}}` im ersten Zug aus dem JSON-Body weg, `empty`
+schickt einen leeren Wert. Das brauchen Zielsysteme, die einen Thread erst beim ersten Aufruf
+ohne ID anlegen und unbekannte IDs ablehnen. Ab dem zweiten Zug gilt die ID des Zielsystems;
+gibt es im ersten Zug keine zurück, scheitert die Iteration mit dem Pfad. Bei `cookie` ist
+`key` der Name des Cookies, das das Zielsystem setzt. Ein Dialog läuft Runde für Runde in
+derselben Sitzung (Abschnitt 5, Dialogszenario).
 Ein lauffähiges Beispiel liegt unter `examples/mock-target/aiqa.yaml`.
 
 Gestreamte Antworten: antwortet das Zielsystem als NDJSON (eine JSON-Zeile je Ereignis) oder
@@ -297,6 +303,7 @@ session:
   mode: body
   key: $.threadId
   event: { path: $.type, equals: thread } # das Ereignis mit der Thread-ID
+  initial: omit # erster Zug ohne threadId, das Zielsystem vergibt sie
 ```
 
 ```yaml
@@ -323,9 +330,13 @@ Die gemeinsamen Bausteine aller Netzwerk-Adapter stehen und greifen im `target`-
   der Lauf ab: Status `aborted`, als Grund der Text der Antwort. Der abgelehnte Aufruf hat
   nichts geprüft und landet nicht in den Iterationen. Ältere Läufe mit solchen Iterationen
   zeigt der Report als "Nicht ausgeführt (HTTP 429)" außerhalb jeder Quote.
-  `rateLimit.maxCallsPerDay` nennt das Tageslimit, dann warnt `aiqa run` vor dem ersten Aufruf,
-  wenn der Plan mehr braucht. Erwartet ein Fall `status: 429`, gilt die Ablehnung als bestanden
-  und der Lauf geht weiter. Hintergrund in [ADR 0021](docs/adr/0021-http-429-beendet-den-lauf.md).
+  `rateLimit.maxCallsPerDay` nennt das Tageslimit, dann zählt `aiqa run` vor dem ersten Aufruf
+  die Aufrufe aller Läufe des Tages gegen dasselbe Zielsystem aus `usage` in `run.json` zusammen
+  (Kalendertag in der Zeitzone des Rechners, die Ausgabe nennt sie) und warnt mit beiden Zahlen,
+  wenn sie samt Plan das Limit übersteigen. Läufe ohne erfassten Aufwand zählen nicht, Aufrufe
+  außerhalb von AI QA kennt es nicht. `rateLimit.enforceDaily: true` lässt den Lauf dann gar
+  nicht starten. Erwartet ein Fall `status: 429`, gilt die Ablehnung als bestanden und der Lauf
+  geht weiter. Hintergrund in [ADR 0021](docs/adr/0021-http-429-beendet-den-lauf.md).
 - Strg+C beendet einen Lauf nach der laufenden Iteration mit Status `aborted` und Aufwand in
   `run.json`. Ein zweites Strg+C bricht sofort ab.
 - `timeouts`: `requestMs` begrenzt einen Versuch, `dialogMs` einen ganzen Aufruf samt
@@ -511,10 +522,15 @@ die Stichprobe der Fehlschläge im Report. Ihn melden die Adapter `http` und `op
 Weitere Erwartungen: `schema` nimmt ein JSON Schema, gegen das die Antwort als JSON geprüft wird,
 auch wenn sie in einem Markdown-Codeblock steckt. `refusal: true` verlangt, dass das System die
 Anfrage verweigert, `refusal: false`, dass es antwortet. Die Erkennung kennt deutsche und englische
-Formulierungen; ein schlichtes "dazu habe ich keine Informationen" zählt nicht als Verweigerung.
+Formulierungen, auch mit typografischem Apostroph wie in "I can’t"; ein schlichtes "dazu habe
+ich keine Informationen" zählt nicht als Verweigerung.
 
 Zusätzlich prüft AI QA jede Antwort auf Zeichenketten, die wie Schlüssel oder Tokens aussehen
 (Check `leak`), und bei gesetztem `expectations.maxLatencyMs` die Antwortzeit (Check `latency`).
+Eine leere Antwort, auch eine nur aus Leerzeichen, scheitert mit dem Check `empty`, sonst würde
+ein Fall, der nur Verbotenes prüft, durch Schweigen bestehen. Ein Fall erlaubt sie mit
+`allowEmpty: true`, bei einem erwarteten `status` entfällt der Check. `refusal: false` verlangt
+immer eine Antwort mit Inhalt. Der Report zählt leere Antworten in der Zusammenfassung.
 
 ### Rubrik und Judge
 
@@ -1192,7 +1208,7 @@ die Benachrichtigung von GitHub.
 
 ## 10. Status, Lizenz, Mitmachen, Kontakt
 
-- Status: Version 0.10.0 vom 26.10.2026, Änderungen in [CHANGELOG.md](CHANGELOG.md). Die
+- Status: Version 0.11.0 vom 28.10.2026, Änderungen in [CHANGELOG.md](CHANGELOG.md). Die
   Meilensteine Foundation, Dialoge und Agenten sowie MVP mit dem ersten echten Zielsystem sind
   abgeschlossen. Erledigt ist, was in einem Release enthalten ist.
 - Herausgeber: Philipp Löschner, Wirkmittel AI, https://wirkmittel.ai, E-Mail

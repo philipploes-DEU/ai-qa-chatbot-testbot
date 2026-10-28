@@ -36,8 +36,9 @@ für ein konkretes System gegen einen konkreten Satz von Testfällen.
   und kurzlebigen Tokens, die AI QA selbst holt und erneuert. Rate Limit, Wiederholung bei
   Überlast, Timeouts.
 - Antworten bewerten: deterministische Checks entscheiden, was keine Interpretation braucht
-  (Begriff enthalten oder nicht, Muster, JSON-Struktur, Verweigerung, schlüsselförmige Geheimnisse,
-  Antwortzeit). Was übrig bleibt, bewertet der Judge, ein zweites Modell, nach der Rubrik des
+  (Begriff enthalten oder nicht, Muster, JSON-Struktur, Verweigerung, leere Antwort,
+  schlüsselförmige Geheimnisse, Antwortzeit). Was übrig bleibt, bewertet der Judge, ein zweites
+  Modell, nach der Rubrik des
   Falls mit Begründung je Kriterium. Antworten, die den Prüfer ansprechen, scheitern immer.
 - Fehlschläge analysieren lassen: der Analyseagent gruppiert die Fehlschläge eines Laufs und
   bildet je Gruppe eine Hypothese zur Ursache mit Vorschlägen für neue Testfälle. Ein Mensch
@@ -208,7 +209,8 @@ zusammen.
   zählen als gescheiterte Iteration, mit dem Grund.
 - Nicht ausgeführt (HTTP 429): Lehnt das Zielsystem weitere Anfragen ab, etwa am Tageslimit
   eines Testkontos, endet der Lauf. Solche Aufrufe haben nichts geprüft und zählen in keiner
-  Quote. Mit `rateLimit.maxCallsPerDay` warnt AI QA schon vor dem Lauf.
+  Quote. Mit `rateLimit.maxCallsPerDay` warnt AI QA schon vor dem Lauf und rechnet die Aufrufe
+  der früheren Läufe des Tages mit, mit `enforceDaily` startet der Lauf dann nicht.
 - Ohne Judge-Urteil: Iterationen, die der Judge bewerten sollte, aber nicht bewertet hat. "Judge
   lehnt ab" heißt, das Modell hat die Bewertung verweigert oder leer geantwortet, "Judge-Fehler"
   heißt, seine Antwort war unbrauchbar. Sie zählen nicht in der Pass-Rate, außer ein Treffer in `mustNotClaim` zählt

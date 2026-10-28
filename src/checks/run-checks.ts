@@ -1,6 +1,7 @@
 import type { TargetResponse } from "../adapters/target.js";
 import type { TestCase } from "../domain/test-case.js";
 import type { Check, CheckContext, CheckResult } from "./check.js";
+import { emptyCheck } from "./empty.js";
 import { createLatencyCheck } from "./latency.js";
 import { leakCheck } from "./leak.js";
 import { mustContainCheck } from "./must-contain.js";
@@ -19,6 +20,7 @@ export interface DefaultCheckOptions {
 /** The checks the runner applies to every response, in this order. */
 export function createDefaultChecks(options: DefaultCheckOptions): Check[] {
   const checks: Check[] = [
+    emptyCheck,
     mustContainCheck,
     mustNotContainCheck,
     mustNotClaimCheck,

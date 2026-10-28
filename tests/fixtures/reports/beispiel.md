@@ -186,4 +186,5 @@ Ist, Iteration 0:
 - Nicht gebunden (unresolved): Fälle, deren Platzhalter aus der Datenquelle keinen Wert bekamen. Sie wurden nicht geschickt und zählen in keiner Quote.
 - Nicht ausgeführt (HTTP 429): Iterationen, die das Zielsystem abgelehnt hat, etwa wegen eines Tageslimits. Sie haben nichts geprüft und zählen in keiner Quote. Der Lauf bricht beim ersten solchen Aufruf ab.
 - Ohne Judge-Urteil: Iterationen, die der Judge bewerten sollte, aber nicht bewertet hat, weil das Modell ablehnte (Judge lehnt ab) oder scheiterte (Judge-Fehler). Sie zählen nicht in der Pass-Rate, außer ein Treffer in mustNotClaim zählt ohne Urteil als Fehlschlag. aiqa judge --run bewertet sie nach.
+- Leere Antworten: Iterationen, in denen das Zielsystem nichts oder nur Leerzeichen geantwortet hat. Sie scheitern mit dem Check empty, außer der Fall erlaubt es mit allowEmpty oder erwartet einen HTTP-Status.
 - Cohen's Kappa: Übereinstimmung des Judge mit menschlichen Labels, um Zufall bereinigt. 1 ist perfekt, 0 Zufall. Unter der Schwelle des Goldsets ist der Judge nicht freigegeben.

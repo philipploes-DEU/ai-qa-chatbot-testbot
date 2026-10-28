@@ -385,6 +385,25 @@ describe("MarkdownRenderer calibration and samples", () => {
   });
 });
 
+describe("empty answers (issue #113)", () => {
+  it("lists empty answers in the summary only when there are some", () => {
+    const withEmpty = new MarkdownRenderer().render(
+      buildReportModel({
+        run,
+        iterations: [iteration("faq", 0), { ...iteration("faq", 1), response: "" }],
+        verdicts: [
+          verdict("faq", 0, "empty", true, "Antwort hat Inhalt"),
+          verdict("faq", 1, "empty", false, "leere Antwort"),
+        ],
+      }),
+    );
+    expect(withEmpty).toContain("| Leere Antworten | 1 |");
+    expect(withEmpty).toContain("Leere Antworten: Iterationen");
+    const without = new MarkdownRenderer().render(buildReportModel({ run, iterations, verdicts }));
+    expect(without).not.toContain("| Leere Antworten |");
+  });
+});
+
 describe("questions and answers (issue #107)", () => {
   const markdown = new MarkdownRenderer().render(
     buildReportModel({

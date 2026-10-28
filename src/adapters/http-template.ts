@@ -35,6 +35,35 @@ function mergeBody(body: string, merge: Readonly<Record<string, unknown>> | unde
   return JSON.stringify({ ...(parsed as Record<string, unknown>), ...merge });
 }
 
+/** Stands in for {{session}} in the first turn with session.initial omit, then is removed. */
+const OMIT_MARK = "__aiqa_omit_session__";
+
+/**
+ * Removes every object field whose value is the marker, at any depth (issue #111). The body
+ * must be a JSON object, like for bodyMerge.
+ */
+export function omitFields(body: string, marker: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    parsed = undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("session.initial omit braucht ein JSON-Objekt als Body im Request-Template");
+  }
+  const strip = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(strip);
+    if (typeof value !== "object" || value === null) return value;
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, entry]) => entry !== marker)
+        .map(([name, entry]) => [name, strip(entry)]),
+    );
+  };
+  return JSON.stringify(strip(parsed));
+}
+
 /**
  * Adapter `http` (issue #3): speaks to a target through a request template from aiqa.yaml.
  * The body may use {{input}}, {{session}} and {{turns}}, the answer is read at `responsePath`.
@@ -65,7 +94,7 @@ export class HttpTemplateAdapter implements TargetAdapter {
     this.name = target.name;
     this.endpoint = target.endpoint;
     this.request = target.request;
-    this.session = target.session ?? { mode: "none" };
+    this.session = target.session ?? { mode: "none", initial: "generated" };
     this.client = new TargetHttpClient(target, options);
   }
 
@@ -99,9 +128,19 @@ export class HttpTemplateAdapter implements TargetAdapter {
       throw new Error("der Adapter http braucht mindestens einen Gesprächszug mit role user");
     }
     const state = session === undefined ? undefined : this.sessions.get(session);
+    // The first turn of a body session: the target may not know any id yet (issue #111).
+    const firstTurn = state?.token === null && this.session.mode === "body";
+    const initial = firstTurn ? this.session.initial : "generated";
     const values: TemplateValues = {
       input: lastUserTurn.content,
-      session: state === undefined ? (session ?? "") : (state.token ?? state.id),
+      session:
+        state === undefined
+          ? (session ?? "")
+          : initial === "omit"
+            ? OMIT_MARK
+            : initial === "empty"
+              ? ""
+              : (state.token ?? state.id),
       turns,
       vars: { ...this.request.vars, ...options.vars },
     };
@@ -112,16 +151,24 @@ export class HttpTemplateAdapter implements TargetAdapter {
     }
     if (state !== undefined) this.addSessionHeader(headers, state);
 
+    const rendered = renderTemplate(this.request.body, values);
+    const body = mergeBody(
+      initial === "omit" ? omitFields(rendered, OMIT_MARK) : rendered,
+      options.bodyMerge,
+    );
     const response = await this.client.request(this.endpoint, {
       method: this.request.method,
       headers,
-      ...(this.request.method === "GET"
-        ? {}
-        : { body: mergeBody(renderTemplate(this.request.body, values), options.bodyMerge) }),
+      ...(this.request.method === "GET" ? {} : { body }),
     });
 
     const { content, payload, events } = this.readAnswer(response);
     if (state !== undefined) this.adoptSession(state, response, payload, events);
+    if (firstTurn && initial !== "generated" && state.token === null) {
+      throw new ResponsePathError(
+        `das Zielsystem hat im ersten Zug keine Sitzung unter ${this.session.key ?? ""} zurückgegeben (session.initial ${initial})`,
+      );
+    }
 
     return {
       content,

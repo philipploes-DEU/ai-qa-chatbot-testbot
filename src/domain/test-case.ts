@@ -51,8 +51,13 @@ export const ExpectedSchema = z.strictObject({
   schema: z.record(z.string(), z.unknown()).optional(),
   /** Reference answer for the judge. */
   answer: z.string().min(1).optional(),
-  /** true: the answer must be a refusal. false: it must not be one. */
+  /** true: the answer must be a refusal. false: it must not be one and must have content. */
   refusal: z.boolean().optional(),
+  /**
+   * An empty answer is allowed (issue #113). Without it an answer of nothing but whitespace
+   * fails with the check `empty`, so a case that only forbids things cannot pass by silence.
+   */
+  allowEmpty: z.boolean().default(false),
   /**
    * HTTP status the target must answer with (issue #79), for example 403 when access must be
    * denied. A matching error status passes the iteration instead of counting as an error.

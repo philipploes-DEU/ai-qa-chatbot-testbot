@@ -60,6 +60,8 @@ export interface ReportTotals {
   notExecuted: number;
   /** Cases not sent because a placeholder had no value (issue #93). */
   unresolvedCases: number;
+  /** Iterations the target answered with nothing but whitespace (issue #113). */
+  emptyAnswers: number;
   /** Draft cases of the run; none of the figures above counts them. */
   draftCases: number;
   /**
@@ -675,6 +677,12 @@ export function buildReportModel(input: ReportInput): ReportModel {
     errors: counted.reduce((sum, entry) => sum + entry.errors, 0),
     notExecuted: counted.reduce((sum, entry) => sum + entry.notExecuted, 0),
     unresolvedCases: input.run.unresolvedCases?.length ?? 0,
+    emptyAnswers: input.iterations.filter(
+      (iteration) =>
+        !drafts.has(iteration.caseId) &&
+        iteration.response !== null &&
+        iteration.response.trim() === "",
+    ).length,
     draftCases: cases.length - counted.length,
     correctedPassedIterations: rejectedRefs.size === 0 ? null : passedIterations + cleared.length,
     correctedPassRate:

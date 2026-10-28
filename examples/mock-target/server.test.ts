@@ -195,6 +195,29 @@ describe("mock target", () => {
       expect(String(unknown.lines[1]?.reply)).toContain("noch nicht gesagt");
     });
 
+    it("ndjson strict: rejects an unknown thread id, opens a thread without one (issue #111)", async () => {
+      const strict = async (body: Record<string, unknown>) => {
+        const response = await fetch(`${target.url}/chat/ndjson/strict`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        return { status: response.status, text: await response.text() };
+      };
+      const unknown = await strict({ message: "Hallo", threadId: "gibt-es-nicht" });
+      expect(unknown.status).toBe(404);
+      expect(JSON.parse(unknown.text)).toMatchObject({ error: { code: "THREAD_NOT_FOUND" } });
+
+      const opened = await strict({ message: "Ich heiße Mara." });
+      expect(opened.status).toBe(200);
+      const thread = JSON.parse(opened.text.split("\n")[0] ?? "{}") as { threadId: string };
+      const recall = await strict({ message: "Wie heiße ich?", threadId: thread.threadId });
+      expect(recall.text).toContain("Du heißt Mara.");
+
+      const empty = await strict({ message: "Hallo", threadId: "" });
+      expect(empty.status).toBe(200);
+    });
+
     it("sse: streams the answer as delta events and ends with [DONE]", async () => {
       const response = await fetch(`${target.url}/chat/sse`, {
         method: "POST",

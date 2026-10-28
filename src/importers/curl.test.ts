@@ -204,6 +204,22 @@ describe("streamed sample answers (issue #106)", () => {
     expect(none.notes.join(" ")).toMatch(/von Hand/);
   });
 
+  it("suggests initial: omit when the copied call sends no session field (issue #111)", () => {
+    const sample = stream(ndjson, "application/x-ndjson");
+    expect(suggestStream(sample, { bodyHasSession: false }).notes.join(" ")).toContain(
+      "initial: omit",
+    );
+    expect(suggestStream(sample, { bodyHasSession: true }).notes.join(" ")).not.toContain(
+      "initial: omit",
+    );
+    const draft = draftTarget(parseCurl(CHROME), {
+      question: "Welche Dokumente liegen vor?",
+      response: { sessionId: "s-1", answer: "Es liegen Protokolle vor." },
+    });
+    expect(draft.notes.join(" ")).toContain("key: $.sessionId");
+    expect(draft.notes.join(" ")).toContain("initial: omit");
+  });
+
   it("puts format, event filter and path into the draft so that it validates", () => {
     const final = draftTarget(parseCurl(CHROME), {
       question: "Welche Dokumente liegen vor?",

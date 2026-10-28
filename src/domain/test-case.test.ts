@@ -24,6 +24,7 @@ describe("TestCaseSchema", () => {
     expect(parsed.expected.mustMatch).toEqual([]);
     expect(parsed.expected.mustNotMatch).toEqual([]);
     expect(parsed.expected.refusal).toBeUndefined();
+    expect(parsed.expected.allowEmpty).toBe(false);
   });
 
   it("accepts a probe that expects a refusal", () => {

@@ -2,6 +2,7 @@ import type { TargetResponse } from "../adapters/target.js";
 import type { TestCase } from "../domain/test-case.js";
 import type { Check, CheckContext, CheckResult } from "./check.js";
 import { emptyCheck } from "./empty.js";
+import { jsonCheck } from "./json.js";
 import { createLatencyCheck } from "./latency.js";
 import { leakCheck } from "./leak.js";
 import { mustContainCheck } from "./must-contain.js";
@@ -27,6 +28,7 @@ export function createDefaultChecks(options: DefaultCheckOptions): Check[] {
     mustMatchCheck,
     mustNotMatchCheck,
     schemaCheck,
+    jsonCheck,
     refusalCheck,
     leakCheck,
     statusCheck,

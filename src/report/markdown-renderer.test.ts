@@ -570,3 +570,38 @@ describe("placeholders bound from data sources (issue #93)", () => {
     expect(markdown).toContain("- anruf: telefon_1: Feld telefon fehlt");
   });
 });
+
+describe("conditions of the json check (issue #120)", () => {
+  function jsonVerdict(index: number, treffer: boolean): Verdict {
+    return {
+      runId: run.id,
+      caseId: "messung",
+      index,
+      source: "check",
+      pass: treffer,
+      criteria: [
+        { name: "json: $.erfunden.length = 0", pass: true, reason: "Wert ist 0" },
+        { name: "json: $.treffer >= 12", pass: treffer, reason: "x" },
+      ],
+      reasoning: "json",
+    };
+  }
+
+  it("lists every condition with its own rate, only when there are some", () => {
+    const report = new MarkdownRenderer().render(
+      buildReportModel({
+        run,
+        iterations: [iteration("messung", 0), iteration("messung", 1)],
+        verdicts: [jsonVerdict(0, true), jsonVerdict(1, false)],
+      }),
+    );
+    expect(report).toContain("## JSON-Bedingungen");
+    expect(report).toContain(
+      "| Fall | Bedingung | Bestanden | Pass-Rate | Wilson-Intervall (95 %) | Flakiness |",
+    );
+    expect(report).toContain("| messung | $.erfunden.length = 0 | 2 von 2 | 100,0 % |");
+    expect(report).toContain("| messung | $.treffer >= 12 | 1 von 2 | 50,0 % |");
+    const without = new MarkdownRenderer().render(buildReportModel({ run, iterations, verdicts }));
+    expect(without).not.toContain("## JSON-Bedingungen");
+  });
+});

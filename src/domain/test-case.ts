@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { IdSchema, SeveritySchema, TurnSchema, VersionSchema } from "./common.js";
+import { JsonConditionSchema, jsonConditionLabel } from "./json-condition.js";
 
 export const TestCaseKindSchema = z.enum(["qa", "dialog", "probe"]);
 export type TestCaseKind = z.infer<typeof TestCaseKindSchema>;
@@ -33,37 +34,57 @@ const RegexPatternSchema = z
  * What a correct answer looks like. All checks are optional; an empty object means the
  * case relies on the judge alone.
  */
-export const ExpectedSchema = z.strictObject({
-  /** Every entry must appear in the answer (case-insensitive). */
-  mustContain: z.array(z.string().min(1)).default([]),
-  /** No entry may appear in the answer (case-insensitive). */
-  mustNotContain: z.array(z.string().min(1)).default([]),
-  /**
-   * The answer must not state these as true (issue #82). Quoting them to reject them is fine;
-   * a hit goes to the judge, without a judge it fails like mustNotContain.
-   */
-  mustNotClaim: z.array(z.string().min(1)).default([]),
-  /** Regular expressions that must all match. */
-  mustMatch: z.array(RegexPatternSchema).default([]),
-  /** Regular expressions that must not match. */
-  mustNotMatch: z.array(RegexPatternSchema).default([]),
-  /** JSON Schema the answer must satisfy when parsed as JSON. */
-  schema: z.record(z.string(), z.unknown()).optional(),
-  /** Reference answer for the judge. */
-  answer: z.string().min(1).optional(),
-  /** true: the answer must be a refusal. false: it must not be one and must have content. */
-  refusal: z.boolean().optional(),
-  /**
-   * An empty answer is allowed (issue #113). Without it an answer of nothing but whitespace
-   * fails with the check `empty`, so a case that only forbids things cannot pass by silence.
-   */
-  allowEmpty: z.boolean().default(false),
-  /**
-   * HTTP status the target must answer with (issue #79), for example 403 when access must be
-   * denied. A matching error status passes the iteration instead of counting as an error.
-   */
-  status: z.number().int().min(100).max(599).optional(),
-});
+export const ExpectedSchema = z
+  .strictObject({
+    /** Every entry must appear in the answer (case-insensitive). */
+    mustContain: z.array(z.string().min(1)).default([]),
+    /** No entry may appear in the answer (case-insensitive). */
+    mustNotContain: z.array(z.string().min(1)).default([]),
+    /**
+     * The answer must not state these as true (issue #82). Quoting them to reject them is fine;
+     * a hit goes to the judge, without a judge it fails like mustNotContain.
+     */
+    mustNotClaim: z.array(z.string().min(1)).default([]),
+    /** Regular expressions that must all match. */
+    mustMatch: z.array(RegexPatternSchema).default([]),
+    /** Regular expressions that must not match. */
+    mustNotMatch: z.array(RegexPatternSchema).default([]),
+    /** JSON Schema the answer must satisfy when parsed as JSON. */
+    schema: z.record(z.string(), z.unknown()).optional(),
+    /**
+     * Conditions on single paths of the JSON answer (issue #120). Each one is rated on its own,
+     * so the report shows a pass rate per condition.
+     */
+    json: z.array(JsonConditionSchema).default([]),
+    /** Reference answer for the judge. */
+    answer: z.string().min(1).optional(),
+    /** true: the answer must be a refusal. false: it must not be one and must have content. */
+    refusal: z.boolean().optional(),
+    /**
+     * An empty answer is allowed (issue #113). Without it an answer of nothing but whitespace
+     * fails with the check `empty`, so a case that only forbids things cannot pass by silence.
+     */
+    allowEmpty: z.boolean().default(false),
+    /**
+     * HTTP status the target must answer with (issue #79), for example 403 when access must be
+     * denied. A matching error status passes the iteration instead of counting as an error.
+     */
+    status: z.number().int().min(100).max(599).optional(),
+  })
+  .superRefine((expected, ctx) => {
+    const seen = new Set<string>();
+    expected.json.forEach((condition, index) => {
+      const label = jsonConditionLabel(condition);
+      if (seen.has(label)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["json", index],
+          message: `die Bedingung "${label}" gibt es schon, im Report wären beide nicht zu unterscheiden. Mit name benennen oder eine streichen`,
+        });
+      }
+      seen.add(label);
+    });
+  });
 export type Expected = z.infer<typeof ExpectedSchema>;
 
 /** A name for a captured value, usable as {{capture.name}}. */

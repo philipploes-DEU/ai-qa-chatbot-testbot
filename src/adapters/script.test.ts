@@ -87,6 +87,33 @@ describe("ScriptAdapter", () => {
     );
   });
 
+  it("hands the variables of the case on stdin and in the environment", async () => {
+    const adapter = new ScriptAdapter(target());
+    expect(adapter.supportsVars).toBe(true);
+    const response = await adapter.send([{ role: "user", content: "variablen" }], undefined, {
+      vars: { gespraech: "erstkontakt", schritt: "rueckfrage" },
+    });
+    expect(JSON.parse(response.content)).toEqual({
+      vars: { gespraech: "erstkontakt", schritt: "rueckfrage" },
+      env: { AIQA_VAR_gespraech: "erstkontakt", AIQA_VAR_schritt: "rueckfrage" },
+    });
+  });
+
+  it("sends neither vars nor environment variables for a case without vars", async () => {
+    const adapter = new ScriptAdapter(target());
+    const response = await adapter.send([{ role: "user", content: "variablen" }]);
+    expect(JSON.parse(response.content)).toEqual({ vars: null, env: {} });
+  });
+
+  it("rejects variables whose names differ only in case", async () => {
+    const adapter = new ScriptAdapter(target());
+    await expect(
+      adapter.send([{ role: "user", content: "variablen" }], undefined, {
+        vars: { schritt: "a", Schritt: "b" },
+      }),
+    ).rejects.toThrow(/schritt.*Schritt.*Groß- und Kleinschreibung/);
+  });
+
   it("requires a user turn", async () => {
     const adapter = new ScriptAdapter(target());
     await expect(adapter.send([{ role: "assistant", content: "x" }])).rejects.toThrow(/role user/);

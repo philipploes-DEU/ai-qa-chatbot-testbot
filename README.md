@@ -6,18 +6,18 @@ bewertet die nicht-deterministischen Antworten mit LLM-Judges nach Rubrik, ergä
 deterministische Checks, sichert Fehlerquoten über mehrere Iterationen statistisch ab und erzeugt
 Reports.
 
-Status: Version 0.11.0. Adapter für HTTP mit JSON und gestreamten Antworten (NDJSON,
-Server-Sent Events), OpenAI-kompatible Schnittstellen, Browser und lokale Kommandos, Login mit
-kurzlebigen Tokens, Einrichtung aus einem cURL-Aufruf, Variablen je Fall, Platzhalter mit Werten
-aus Datenquellen, erwarteter HTTP-Status, Folgeaufrufe im Dialog, Judge mit Kalibrierung und
-Quelldokumenten, der Ablehnungen des Judge-Modells erkennt, 43 OWASP-Testmuster mit Ködern,
-Vergleich und Gates, Markdown- und HTML-Report mit bestätigten und verworfenen Befunden sowie
-Frage, Soll und Antwort je Fall, Übergabe-Report über mehrere Läufe, sauberer Abbruch am
+Status: Version 0.12.0. Adapter für HTTP mit JSON und gestreamten Antworten (NDJSON, Server-Sent
+Events), OpenAI-kompatible Schnittstellen, Browser und lokale Kommandos, Login mit kurzlebigen
+Tokens, Einrichtung aus einem cURL-Aufruf, Variablen je Fall, Platzhalter mit Werten aus
+Datenquellen, erwarteter HTTP-Status, Bedingungen auf JSON-Pfade mit eigener Pass-Rate,
+Folgeaufrufe im Dialog, Judge mit Kalibrierung und Quelldokumenten, der Ablehnungen des
+Judge-Modells erkennt, 43 OWASP-Testmuster mit Ködern, Vergleich und Gates, Nachrechnen der Checks
+auf gespeicherten Antworten, Markdown- und HTML-Report mit bestätigten und verworfenen Befunden
+sowie Frage, Soll und Antwort je Fall, Übergabe-Report über mehrere Läufe, sauberer Abbruch am
 Tageslimit des Zielsystems, Planungs- und Analyseagent, promptfoo-Import, JUnit-XML für GitHub,
 eine lokale Oberfläche und ein Einrichtungs-Skill für Claude Code. Die Releases erscheinen
-öffentlich unter
-https://github.com/philipploes-DEU/ai-qa-chatbot-testbot, entwickelt wird in einem privaten
-Repository ([ADR 0023](docs/adr/0023-oeffentliches-release-repository.md)).
+öffentlich unter https://github.com/philipploes-DEU/ai-qa-chatbot-testbot, entwickelt wird in einem
+privaten Repository ([ADR 0023](docs/adr/0023-oeffentliches-release-repository.md)).
 
 Ein Projekt von Philipp Löschner, Wirkmittel AI: https://wirkmittel.ai
 
@@ -457,6 +457,28 @@ Das Kommando läuft im Arbeitsbereich. Ein Beispiel ohne Netzwerk liegt unter
 endpoint: node ../../examples/script-target/answer.mjs
 ```
 
+Variablen je Fall: Setzt ein Fall `vars`, bekommt das Kommando sie als eigenes Objekt `vars` auf
+stdin und zusätzlich als Umgebungsvariablen `AIQA_VAR_<name>`, mit dem Namen so, wie er im Fall
+steht. So bleiben Steuerwerte wie Gesprächsname, Schritt oder Profil aus dem Nutzerzug heraus.
+Ein Fall ohne `vars` lässt beides weg. Standardwerte im target-Block gibt es für `script` nicht.
+Namen, die sich nur in Groß- und Kleinschreibung unterscheiden, lehnt der Adapter ab, weil
+Windows sie als dieselbe Umgebungsvariable liest.
+
+```yaml
+# Goldset
+- id: rueckfrage-erstkontakt
+  kind: qa
+  input: Ich brauche einen Termin.
+  vars: { gespraech: erstkontakt, schritt: rueckfrage }
+```
+
+```json
+{
+  "turns": [{ "role": "user", "content": "Ich brauche einen Termin." }],
+  "vars": { "gespraech": "erstkontakt", "schritt": "rueckfrage" }
+}
+```
+
 ### Beispielziele
 
 Fremde Chatbots dürfen ohne Erlaubnis nicht mit OWASP-Proben geprüft werden. Unter `examples/`
@@ -531,6 +553,35 @@ Eine leere Antwort, auch eine nur aus Leerzeichen, scheitert mit dem Check `empt
 ein Fall, der nur Verbotenes prüft, durch Schweigen bestehen. Ein Fall erlaubt sie mit
 `allowEmpty: true`, bei einem erwarteten `status` entfällt der Check. `refusal: false` verlangt
 immer eine Antwort mit Inhalt. Der Report zählt leere Antworten in der Zusammenfassung.
+
+Antwortet das Zielsystem mit JSON, etwa ein Messstand mit Treffern, Fehlern und Kosten, prüft
+`json` einzelne Pfade der Antwort. Jede Bedingung wird für sich bewertet und bekommt im Report
+eine eigene Pass-Rate mit Intervall und Flakiness, statt eines Urteils für die ganze Antwort wie
+bei `schema`:
+
+```yaml
+expected:
+  json:
+    - { path: $.erfunden.length, equals: 0 }
+    - { path: $.treffer, min: 12 }
+    - { path: "$.eintraege[*].kennung", contains: p-jonas }
+    - { path: $.fehler, empty: true }
+    - { name: Kosten im Rahmen, path: $.kosten, min: 0, max: 0.5 }
+```
+
+- Pfade: Felder mit Punkt, `[0]` für einen Index, `['name']` für Namen mit Sonderzeichen, `[*]`
+  für jedes Element einer Liste, `length` für die Länge einer Liste oder eines Texts. Pfade mit
+  `[` gehören in YAML in Anführungszeichen.
+- Vergleiche: `equals` vergleicht den Wert, auch Listen und Objekte. `min` und `max` verlangen
+  eine Zahl, bei `[*]` für jeden Treffer. `contains` sucht ein Element in einer Liste oder ein
+  Stück in einem Text. `empty: true` trifft auf fehlend, `null`, `""`, `[]` und `{}` zu,
+  `empty: false` auf alles andere. Mehrere Vergleiche in einer Bedingung müssen alle zutreffen.
+- `name` benennt die Bedingung im Report, sonst stehen dort Pfad und Vergleich. Zwei Bedingungen
+  mit gleichem Namen lehnt `aiqa validate` ab.
+- Die Antwort darf wie bei `schema` in einem Markdown-Codeblock stecken. Ist sie kein JSON,
+  scheitert jede Bedingung. Scheitert eine Bedingung, scheitert die Iteration.
+
+Hintergrund in [ADR 0025](docs/adr/0025-json-bedingungen.md).
 
 ### Rubrik und Judge
 
@@ -969,6 +1020,8 @@ Jede Zahl im Report bezieht sich auf Iterationen, also auf Wiederholungen dessel
   Beispiel "fehlt: \"17\"" oder "keine Verweigerung erkannt, der Fall erwartet eine", vom Judge
   das Kriterium der Rubrik mit der Begründung des Modells, etwa "Korrektheit: nennt Samstag, die
   Referenz nennt Montag bis Freitag".
+- JSON-Bedingungen: je Bedingung eines Falls mit `expected.json` Pass-Rate, Intervall und
+  Flakiness über die Iterationen. Der Abschnitt fehlt, wenn kein Fall solche Bedingungen hat.
 - Fälle ohne Urteil: weder ein Check griff noch gab es Rubrik oder Judge. Sie zählen nicht in die
   Pass-Rate.
 - Hinweise zum Lauf: der Report nennt den Judge mit Prompt-Version und warnt, wenn Judge und
@@ -1123,6 +1176,34 @@ sagt der Vergleich das vorweg. Das Markdown landet unter `reports/<base>--<head>
 schreibt dieselben Zahlen für Werkzeuge. `latest` und `previous` stehen für die zwei neuesten
 Läufe.
 
+### Checks nachrechnen
+
+Ändert sich nach einem Lauf ein Check oder das Soll eines Falls, musst du das Zielsystem nicht
+neu befragen. `aiqa check --run <id>` rechnet die deterministischen Checks auf den gespeicherten
+Antworten mit den Goldsets von heute neu:
+
+```
+pnpm aiqa -- -w workspaces/mein-bot check --run latest
+```
+
+- Das Ergebnis ist ein neuer Lauf mit eigener ID und eigenem Report. Der Quelllauf bleibt, wie
+  er ist. Der Report nennt unter "Hinweise zum Lauf", aus welchem Lauf nachgerechnet wurde.
+- Es geht kein Aufruf an das Zielsystem und keiner an den Judge. Der neue Lauf hat 0 Aufrufe
+  und zählt nicht gegen ein Tageslimit.
+- Judge-Urteile und Iterationen ohne Judge-Urteil kommen unverändert mit. Besteht eine Iteration
+  die Checks erst jetzt, fehlt ihr das Judge-Urteil. Der Befehl nennt die Zahl, ergänzen lässt
+  es sich mit `aiqa judge --run <neue id>`. Hast du Rubrik oder Referenzantwort geändert,
+  brauchen die übernommenen Judge-Urteile einen neuen Lauf, sie werden nicht ersetzt.
+- Fehlgeschlagene Aufrufe und gescheiterte `capture` bleiben, wie sie waren: Sie betreffen den
+  Aufruf, nicht die Antwort. Ein erwarteter `status` gilt in der Fassung von heute.
+- Fälle, die es im Goldset nicht mehr gibt, behalten ihre alten Urteile und stehen im Hinweis.
+  Platzhalter nehmen die Werte, die der Quelllauf hatte.
+- `aiqa compare --base <quelllauf> --head <neuer lauf>` zeigt, was die Regeländerung bewirkt,
+  getrennt von einer Änderung am Zielsystem. Der neue Lauf steht als eigener Punkt im Trend,
+  `latest` und `previous` zählen ihn mit.
+
+Hintergrund in [ADR 0026](docs/adr/0026-checks-nachrechnen.md).
+
 ### Paarvergleich
 
 Für Regression und A/B, also zwei Versionen oder zwei Modelle, ist ein Paarvergleich oft
@@ -1208,7 +1289,7 @@ die Benachrichtigung von GitHub.
 
 ## 10. Status, Lizenz, Mitmachen, Kontakt
 
-- Status: Version 0.11.0 vom 28.10.2026, Änderungen in [CHANGELOG.md](CHANGELOG.md). Die
+- Status: Version 0.12.0 vom 12.11.2026, Änderungen in [CHANGELOG.md](CHANGELOG.md). Die
   Meilensteine Foundation, Dialoge und Agenten sowie MVP mit dem ersten echten Zielsystem sind
   abgeschlossen. Erledigt ist, was in einem Release enthalten ist.
 - Herausgeber: Philipp Löschner, Wirkmittel AI, https://wirkmittel.ai, E-Mail

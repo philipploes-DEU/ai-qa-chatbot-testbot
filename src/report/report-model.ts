@@ -3,6 +3,7 @@ import type { Turn } from "../domain/common.js";
 import type { Finding } from "../domain/finding.js";
 import type { BindingFile } from "../domain/fixtures.js";
 import type { Iteration } from "../domain/iteration.js";
+import { JSON_CRITERION_PREFIX, jsonConditionLabel } from "../domain/json-condition.js";
 import type { JudgeFailure } from "../domain/judge-failure.js";
 import type { Run } from "../domain/run.js";
 import type { TestCase } from "../domain/test-case.js";
@@ -149,6 +150,14 @@ export interface CategoryReport {
   interval: Interval | null;
 }
 
+/** One condition of the json check with its own figures over the iterations (issue #120). */
+export interface JsonConditionReport {
+  caseId: string;
+  /** The condition as the goldset names it: its name, else path and comparison. */
+  condition: string;
+  summary: CaseSummary;
+}
+
 /** Pass rate of one run, for the trend over the latest runs. */
 export interface TrendPoint {
   runId: string;
@@ -169,6 +178,11 @@ export interface ReportModel {
   /** Failure rate per category, highest first, categories without verdicts last. */
   categories: CategoryReport[];
   calibrations: RunCalibration[];
+  /**
+   * Pass rate, interval and flakiness per condition of the json check, in order of the run and
+   * of the goldset (issue #120). Drafts are left out.
+   */
+  jsonConditions: JsonConditionReport[];
   /** Up to SAMPLE_LIMIT failed iterations, those with a failing judge verdict first. */
   samples: FailureSample[];
   /** Question, expected and actual answer per case, cases not sent last (issue #107). */
@@ -284,6 +298,7 @@ export function expectedOf(testCase: TestCase | undefined): string[] | null {
     lines.push(`darf den Mustern nicht entsprechen: ${expected.mustNotMatch.join(", ")}`);
   }
   if (expected.schema !== undefined) lines.push("muss dem JSON-Schema des Falls entsprechen");
+  for (const condition of expected.json) lines.push(`JSON: ${jsonConditionLabel(condition)}`);
   if (expected.refusal === true) lines.push("Verweigerung erwartet");
   if (expected.refusal === false) lines.push("keine Verweigerung erwartet");
   if (expected.status !== undefined) {
@@ -489,6 +504,44 @@ function buildCategories(
       (a, b) =>
         (b.failureRate ?? -1) - (a.failureRate ?? -1) || a.category.localeCompare(b.category),
     );
+}
+
+/**
+ * The criteria of the json check, each reduced to one outcome per iteration and summarised like
+ * a case (issue #120). A dialog rated per round passes an iteration when every round passes.
+ */
+function buildJsonConditions(
+  verdicts: readonly Verdict[],
+  drafts: ReadonlySet<string>,
+): JsonConditionReport[] {
+  const byCase = new Map<string, Map<string, Map<number, boolean>>>();
+  for (const verdict of verdicts) {
+    if (verdict.source !== "check" || drafts.has(verdict.caseId)) continue;
+    for (const criterion of verdict.criteria) {
+      if (!criterion.name.startsWith(JSON_CRITERION_PREFIX)) continue;
+      const condition = criterion.name.slice(JSON_CRITERION_PREFIX.length);
+      let ofCase = byCase.get(verdict.caseId);
+      if (ofCase === undefined) {
+        ofCase = new Map();
+        byCase.set(verdict.caseId, ofCase);
+      }
+      let outcomes = ofCase.get(condition);
+      if (outcomes === undefined) {
+        outcomes = new Map();
+        ofCase.set(condition, outcomes);
+      }
+      outcomes.set(verdict.index, (outcomes.get(verdict.index) ?? true) && criterion.pass);
+    }
+  }
+  return [...byCase.entries()].flatMap(([caseId, ofCase]) =>
+    [...ofCase.entries()].map(([condition, outcomes]) => ({
+      caseId,
+      condition,
+      summary: summarizeCase(
+        [...outcomes.entries()].sort((a, b) => a[0] - b[0]).map(([, pass]) => pass),
+      ),
+    })),
+  );
 }
 
 function groupByCase(iterations: readonly Iteration[]): Map<string, Iteration[]> {
@@ -702,6 +755,7 @@ export function buildReportModel(input: ReportInput): ReportModel {
     cases,
     categories: buildCategories(cases, outcomes),
     calibrations: input.run.calibrations ?? [],
+    jsonConditions: buildJsonConditions(verdicts, drafts),
     samples: sampleFailures(input, verdicts),
     exchanges: buildExchanges(input, cases, grouped, verdicts),
     trend: [

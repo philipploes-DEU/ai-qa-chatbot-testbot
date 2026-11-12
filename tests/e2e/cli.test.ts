@@ -264,6 +264,45 @@ describe("aiqa end to end against the dummy target", () => {
     expect(await runCli(["--version"], version)).toBe(0);
     expect(version.out.join("\n")).toMatch(/\d+\.\d+\.\d+/);
   });
+
+  it("check rates the stored answers again with the goldset of today (issue #121)", async () => {
+    const goldsetFile = path.join(workspace, "goldsets", "beispiel", "goldset.yaml");
+    const sourceVerdicts = path.join(workspace, "runs", runId, "verdicts.jsonl");
+    const goldset = await readFile(goldsetFile, "utf8");
+    const before = await readFile(sourceVerdicts, "utf8");
+    expect(goldset).toContain('"17"]');
+    await writeFile(goldsetFile, goldset.replace('"17"]', '"17", Sonntag]'));
+    try {
+      const io = collectIo(workspace);
+      expect(await runCli(["check", "--run", runId], io)).toBe(0);
+      const text = io.out.join("\n");
+      const newId = /Nachgerechnet als Lauf ([^\s:]+)/.exec(text)?.[1] ?? "";
+      expect(newId).not.toBe("");
+      expect(newId).not.toBe(runId);
+      expect(text).toContain(`15 Iterationen aus Lauf ${runId}, kein Aufruf an das Zielsystem.`);
+      expect(text).toContain(
+        "5 von 15 Iterationen bestanden, 5 bestehen nicht mehr, 0 bestehen jetzt.",
+      );
+      expect(text).toContain(`aiqa compare --base ${runId} --head ${newId}`);
+
+      const report = await readFile(path.join(workspace, "reports", `${newId}.md`), "utf8");
+      expect(report).toContain(`Nachgerechnet aus Lauf ${runId}`);
+      expect(report).toContain("Sonntag");
+      const run = JSON.parse(
+        await readFile(path.join(workspace, "runs", newId, "run.json"), "utf8"),
+      ) as { usage?: { calls: number } };
+      expect(run.usage?.calls).toBe(0);
+      expect(await readFile(sourceVerdicts, "utf8")).toBe(before);
+    } finally {
+      await writeFile(goldsetFile, goldset);
+    }
+  });
+
+  it("check names an unknown run", async () => {
+    const io = collectIo(workspace);
+    expect(await runCli(["check", "--run", "gibt-es-nicht"], io)).toBe(1);
+    expect(io.err.join("\n")).toContain("gibt-es-nicht");
+  });
 });
 
 describe("aiqa as a process", () => {

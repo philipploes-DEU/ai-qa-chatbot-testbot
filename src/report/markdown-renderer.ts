@@ -362,6 +362,24 @@ export class MarkdownRenderer implements ReportRenderer {
       "",
     );
 
+    if (model.jsonConditions.length > 0) {
+      lines.push("## JSON-Bedingungen", "");
+      lines.push(
+        ...table(
+          ["Fall", "Bedingung", "Bestanden", "Pass-Rate", "Wilson-Intervall (95 %)", "Flakiness"],
+          model.jsonConditions.map(({ caseId, condition, summary }) => [
+            caseId,
+            condition,
+            `${String(summary.passes)} von ${String(summary.n)}`,
+            formatPercent(summary.passRate),
+            formatInterval(summary.interval),
+            formatNumber(summary.flakiness, 2),
+          ]),
+        ),
+        "",
+      );
+    }
+
     lines.push("## Fehlschläge", "");
     const failed = model.cases.filter((entry) => entry.failures.length > 0);
     if (failed.length === 0) {

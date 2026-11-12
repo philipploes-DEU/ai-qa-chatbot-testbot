@@ -165,7 +165,9 @@ Deutsch oder Englisch, und prüft nach jedem Schritt mit `aiqa validate`.
     getauscht wurden.
 11. Nachbewerten: `aiqa judge --run <id>` ergänzt Judge-Urteile für einen Lauf, der ohne Judge
     entstand oder mit einem neuen Judge-Prompt bewertet werden soll, und für Iterationen, bei
-    denen der Judge ablehnte oder scheiterte.
+    denen der Judge ablehnte oder scheiterte. `aiqa check --run <id>` rechnet die Checks auf den
+    gespeicherten Antworten mit den Goldsets von heute neu, als neuen Lauf mit eigenem Report
+    und ohne Aufruf an das Zielsystem.
 12. Analysieren: `aiqa analyze --run latest` bildet Hypothesen zu den Fehlschlägen,
     `--confirm` und `--reject` halten deine Entscheidung fest, mit Ursache und Vorschlag oder
     mit Grund, etwa "Fehlalarm des Werkzeugs". Mit `--no-agent` geht keine Antwort an ein

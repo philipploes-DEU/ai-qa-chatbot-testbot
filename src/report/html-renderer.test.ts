@@ -374,3 +374,25 @@ describe("iterations the target refused with 429 (issue #96)", () => {
     expect(keyStatement(model()).join(" ")).not.toContain("nicht ausgeführt");
   });
 });
+
+describe("conditions of the json check (issue #120)", () => {
+  it("lists every condition with its own rate, only when there are some", () => {
+    const jsonVerdict = (index: number, treffer: boolean): Verdict => ({
+      runId: run.id,
+      caseId: "faq",
+      index,
+      source: "check",
+      pass: treffer,
+      criteria: [{ name: 'json: $.liste[*].id enthält "<a>"', pass: treffer, reason: "x" }],
+      reasoning: "json",
+    });
+    const html = new HtmlRenderer().render(
+      model({ verdicts: [jsonVerdict(0, true), jsonVerdict(1, false)] }),
+      neutralTheme,
+    );
+    expect(html).toContain("<h2>JSON-Bedingungen</h2>");
+    expect(html).toContain("$.liste[*].id enthält &quot;&lt;a&gt;&quot;");
+    expect(html).toContain("1 von 2");
+    expect(new HtmlRenderer().render(model(), neutralTheme)).not.toContain("JSON-Bedingungen");
+  });
+});

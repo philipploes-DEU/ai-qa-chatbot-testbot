@@ -178,9 +178,11 @@ heutige Datum. Echte System-Prompts und Kundendaten bleiben in `workspaces/`.
 ## Skript-Zielsystem (`script-target`)
 
 `answer.mjs` ist das Beispiel für den Adapter `script`: ein Node-Skript ohne Netzwerk, das
-`{ turns, session }` als JSON von stdin liest und `{ content, tokens }` auf stdout schreibt. Auf
-"fehler" endet es mit Exit-Code 2, auf "kaputt" ohne JSON, auf "langsam" nach zwei Sekunden,
-damit die Tests des Adapters jeden Weg sehen. In einer `aiqa.yaml`:
+`{ turns, session, vars }` als JSON von stdin liest und `{ content, tokens }` auf stdout
+schreibt. Auf "fehler" endet es mit Exit-Code 2, auf "kaputt" ohne JSON, auf "langsam" nach zwei
+Sekunden, auf "variablen" antwortet es mit den Variablen des Falls, wie sie auf stdin und in der
+Umgebung (`AIQA_VAR_<name>`) ankamen, damit die Tests des Adapters jeden Weg sehen. In einer
+`aiqa.yaml`:
 
 ```yaml
 target:

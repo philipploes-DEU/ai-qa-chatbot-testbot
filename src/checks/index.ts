@@ -7,4 +7,5 @@ export * from "./must-not-contain.js";
 export * from "./refusal.js";
 export * from "./regex.js";
 export * from "./run-checks.js";
+export * from "./json.js";
 export * from "./schema.js";

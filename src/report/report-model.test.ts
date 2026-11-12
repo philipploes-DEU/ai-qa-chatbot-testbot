@@ -733,3 +733,79 @@ describe("placeholders bound from data sources (issue #93)", () => {
     expect(plain.totals.unresolvedCases).toBe(0);
   });
 });
+
+describe("conditions of the json check (issue #120)", () => {
+  function jsonVerdict(caseId: string, index: number, outcomes: Record<string, boolean>): Verdict {
+    const criteria = Object.entries(outcomes).map(([name, pass]) => ({
+      name: `json: ${name}`,
+      pass,
+      reason: "x",
+    }));
+    return {
+      runId: run.id,
+      caseId,
+      index,
+      source: "check",
+      pass: criteria.every((criterion) => criterion.pass),
+      criteria,
+      reasoning: "json",
+    };
+  }
+
+  it("gives every condition its own pass rate, interval and flakiness", () => {
+    const model = buildReportModel({
+      run,
+      iterations: [iteration("messung", 0), iteration("messung", 1), iteration("messung", 2)],
+      verdicts: [
+        verdict("messung", 0, "empty", true),
+        jsonVerdict("messung", 0, { "$.erfunden.length = 0": true, "$.treffer >= 12": true }),
+        jsonVerdict("messung", 1, { "$.erfunden.length = 0": true, "$.treffer >= 12": false }),
+        jsonVerdict("messung", 2, { "$.erfunden.length = 0": true, "$.treffer >= 12": true }),
+      ],
+    });
+    expect(model.jsonConditions.map((entry) => [entry.caseId, entry.condition])).toEqual([
+      ["messung", "$.erfunden.length = 0"],
+      ["messung", "$.treffer >= 12"],
+    ]);
+    const [erfunden, treffer] = model.jsonConditions;
+    expect(erfunden?.summary).toMatchObject({ n: 3, passes: 3, passRate: 1, flaky: false });
+    expect(treffer?.summary).toMatchObject({ n: 3, passes: 2, flaky: true });
+    expect(treffer?.summary.passRate).toBeCloseTo(2 / 3);
+    expect(treffer?.summary.interval.low).toBeLessThan(2 / 3);
+    expect(treffer?.summary.flakiness).toBeCloseTo(1 / 3);
+  });
+
+  it("is empty without json conditions and leaves drafts out", () => {
+    expect(buildReportModel({ run, iterations, verdicts: [] }).jsonConditions).toEqual([]);
+    const model = buildReportModel({
+      run: { ...run, draftCases: ["messung"] },
+      iterations: [iteration("messung", 0)],
+      verdicts: [jsonVerdict("messung", 0, { "$.treffer >= 12": true })],
+    });
+    expect(model.jsonConditions).toEqual([]);
+  });
+
+  it("names the conditions as the expected answer of the case", () => {
+    const testCase = TestCaseSchema.parse({
+      id: "messung",
+      kind: "qa",
+      input: "Frage",
+      expected: {
+        json: [
+          { path: "$.erfunden.length", equals: 0 },
+          { name: "genug Treffer", path: "$.treffer", min: 12 },
+        ],
+      },
+    });
+    const model = buildReportModel({
+      run,
+      iterations: [iteration("messung", 0)],
+      verdicts: [],
+      cases: new Map([["messung", testCase]]),
+    });
+    expect(model.exchanges[0]?.expected).toEqual([
+      "JSON: $.erfunden.length = 0",
+      "JSON: genug Treffer",
+    ]);
+  });
+});

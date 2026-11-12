@@ -3,6 +3,14 @@
 Alle nennenswerten Änderungen an AI QA. Erzeugt aus Conventional Commits mit git-cliff.
 Issue-Nummern beziehen sich auf das private Entwicklungs-Repository (ADR 0023).
 
+## [0.12.0] vom 12.11.2026
+
+### Neue Funktionen
+
+- **adapters:** Hand the variables of a case to the script adapter (#119) (#122)
+- **checks:** Rate conditions on JSON paths one by one (#120) (#123)
+- **runner:** Recompute the checks on the stored answers of a run (#121) (#124)
+
 ## [0.11.0] vom 28.10.2026
 
 ### Neue Funktionen

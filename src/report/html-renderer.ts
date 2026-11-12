@@ -584,6 +584,26 @@ function casesSection(model: ReportModel): string {
   );
 }
 
+/** Pass rate per condition of the json check (issue #120); nothing without such conditions. */
+function jsonConditionsSection(model: ReportModel): string {
+  if (model.jsonConditions.length === 0) return "";
+  return section(
+    "JSON-Bedingungen",
+    table(
+      ["Fall", "Bedingung", "Bestanden", "Pass-Rate", "Wilson-Intervall (95 %)", "Flakiness"],
+      model.jsonConditions.map(({ caseId, condition, summary }) => [
+        `<span class="mono">${escapeHtml(caseId)}</span>`,
+        `<span class="mono">${escapeHtml(condition)}</span>`,
+        `${String(summary.passes)} von ${String(summary.n)}`,
+        escapeHtml(formatPercent(summary.passRate)),
+        escapeHtml(formatInterval(summary.interval)),
+        escapeHtml(formatNumber(summary.flakiness, 2)),
+      ]),
+      [2, 3, 4, 5],
+    ),
+  );
+}
+
 function samplesSection(model: ReportModel): string {
   if (model.samples.length === 0) return "";
   const failed = model.cases.reduce((sum, entry) => sum + entry.failures.length, 0);
@@ -762,6 +782,7 @@ export class HtmlRenderer implements ReportRenderer {
         findingsSection(model),
         rejectedSection(model),
         casesSection(model),
+        jsonConditionsSection(model),
         bindingSection(model),
         judgeFailuresSection(model),
         samplesSection(model),

@@ -4,7 +4,7 @@ import type { Tokens, Turn } from "../domain/common.js";
 import type { TargetConfig } from "../domain/target-config.js";
 import { excerpt, TimeoutError } from "./errors.js";
 import { RateLimiter } from "./rate-limit.js";
-import type { TargetAdapter, TargetResponse } from "./target.js";
+import type { SendOptions, TargetAdapter, TargetResponse } from "./target.js";
 
 export interface ScriptAdapterOptions {
   /** Working directory of the command, usually the workspace. */
@@ -36,6 +36,32 @@ export function splitCommand(line: string): { command: string; args: string[] } 
     throw new Error("Adapter script braucht ein Kommando als endpoint");
   }
   return { command, args };
+}
+
+/** Prefix of the environment variables that carry the variables of the case (issue #119). */
+export const VAR_ENV_PREFIX = "AIQA_VAR_";
+
+type Vars = Readonly<Record<string, string>>;
+
+/**
+ * The variables of the case as environment variables, named AIQA_VAR_<name> as written in the
+ * case. Windows ignores case in the environment, so names that differ only in case are refused
+ * instead of one silently replacing the other.
+ */
+export function varsEnvironment(vars: Vars): Record<string, string> {
+  const seen = new Map<string, string>();
+  const environment: Record<string, string> = {};
+  for (const [name, value] of Object.entries(vars)) {
+    const other = seen.get(name.toLowerCase());
+    if (other !== undefined) {
+      throw new Error(
+        `Variablen ${other} und ${name} unterscheiden sich nur in Groß- und Kleinschreibung, als Umgebungsvariable sind sie unter Windows dieselbe`,
+      );
+    }
+    seen.set(name.toLowerCase(), name);
+    environment[`${VAR_ENV_PREFIX}${name}`] = value;
+  }
+  return environment;
 }
 
 interface ScriptOutput {
@@ -75,12 +101,15 @@ function parseOutput(stdout: string): ScriptOutput {
 
 /**
  * Adapter `script` (issue #25): runs a local command per call, hands the conversation as JSON
- * on stdin ({ turns, session }) and reads the answer as JSON from stdout ({ content, tokens? }).
+ * on stdin ({ turns, session, vars }) and reads the answer as JSON from stdout
+ * ({ content, tokens? }). The variables of a case (issue #119) travel as vars on stdin and as
+ * environment variables AIQA_VAR_<name>; a case without vars leaves both out.
  * A non-zero exit code or a timeout is an error of the iteration. No shell: the command line is
  * split into command and arguments, pipes and redirections are not interpreted.
  */
 export class ScriptAdapter implements TargetAdapter {
   readonly name: string;
+  readonly supportsVars = true;
   private readonly command: string;
   private readonly args: string[];
   private readonly cwd: string | undefined;
@@ -102,20 +131,33 @@ export class ScriptAdapter implements TargetAdapter {
     this.limiter = new RateLimiter(target.rateLimit);
   }
 
-  send(turns: readonly Turn[], session?: string): Promise<TargetResponse> {
+  send(turns: readonly Turn[], session?: string, options?: SendOptions): Promise<TargetResponse> {
     if (!turns.some((turn) => turn.role === "user")) {
       return Promise.reject(
         new Error("der Adapter script braucht mindestens einen Gesprächszug mit role user"),
       );
     }
-    return this.limiter.run(() => this.run(turns, session));
+    const vars = options?.vars;
+    let environment: Record<string, string> | undefined;
+    try {
+      environment = vars === undefined ? undefined : varsEnvironment(vars);
+    } catch (error) {
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+    }
+    return this.limiter.run(() => this.run(turns, session, vars, environment));
   }
 
-  private run(turns: readonly Turn[], session: string | undefined): Promise<TargetResponse> {
+  private run(
+    turns: readonly Turn[],
+    session: string | undefined,
+    vars: Vars | undefined,
+    environment: Record<string, string> | undefined,
+  ): Promise<TargetResponse> {
     return new Promise((resolve, reject) => {
       const started = performance.now();
       const child = spawn(this.command, this.args, {
         cwd: this.cwd,
+        ...(environment === undefined ? {} : { env: { ...process.env, ...environment } }),
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
@@ -172,7 +214,13 @@ export class ScriptAdapter implements TargetAdapter {
       child.stdin.on("error", () => {
         // A script that exits before reading stdin closes the pipe; the close handler reports it.
       });
-      child.stdin.end(JSON.stringify({ turns, ...(session === undefined ? {} : { session }) }));
+      child.stdin.end(
+        JSON.stringify({
+          turns,
+          ...(session === undefined ? {} : { session }),
+          ...(vars === undefined ? {} : { vars }),
+        }),
+      );
     });
   }
 }

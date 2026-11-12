@@ -12,6 +12,7 @@ import { initWorkspace } from "./init.js";
 import { executeCalibrate } from "./calibrate-command.js";
 import { executeCompare } from "./compare-command.js";
 import { executeGate } from "./gate-command.js";
+import { executeCheck } from "./check-command.js";
 import { executeJudge } from "./judge-command.js";
 import { executePlan } from "./plan-command.js";
 import type { CliIo } from "./io.js";
@@ -414,6 +415,17 @@ export function createProgram(baseIo: CliIo, state: CliState): Command {
     )
     .action(async (options: { run: string; config?: string }) => {
       await executeJudge(options, io);
+    });
+
+  program
+    .command("check")
+    .requiredOption("--run <id>", "Lauf-ID oder latest")
+    .option("-c, --config <datei>", "Pfad zur aiqa.yaml")
+    .description(
+      "rechnet die Checks auf den gespeicherten Antworten eines Laufs mit den heutigen Goldsets neu, als neuen Lauf mit Report und ohne Aufruf an das Zielsystem",
+    )
+    .action(async (options: { run: string; config?: string }) => {
+      await executeCheck(options, io);
     });
 
   return program;

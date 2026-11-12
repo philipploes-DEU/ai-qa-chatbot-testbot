@@ -194,3 +194,30 @@ describe("TestCaseSchema", () => {
     expect(failurePaths(result)).toContain("input");
   });
 });
+
+describe("expected.json (issue #120)", () => {
+  const base = { id: "messung", kind: "qa", input: "Bewerte die Extraktion." };
+
+  it("defaults to no conditions and keeps the conditions of a case", () => {
+    expect(TestCaseSchema.parse(base).expected.json).toEqual([]);
+    const parsed = TestCaseSchema.parse({
+      ...base,
+      expected: { json: [{ path: "$.treffer", min: 12 }] },
+    });
+    expect(parsed.expected.json).toEqual([{ path: "$.treffer", min: 12 }]);
+  });
+
+  it("rejects two conditions that would share a name in the report", () => {
+    const result = TestCaseSchema.safeParse({
+      ...base,
+      expected: {
+        json: [
+          { path: "$.treffer", min: 12 },
+          { path: "$.treffer", min: 12 },
+        ],
+      },
+    });
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error?.issues)).toContain("$.treffer >= 12");
+  });
+});

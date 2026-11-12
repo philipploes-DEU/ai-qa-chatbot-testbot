@@ -1,8 +1,9 @@
-// Example target for the script adapter (issue #25): reads { turns, session } as JSON from
-// stdin and answers with { content, tokens } as JSON on stdout. No model, no network.
+// Example target for the script adapter (issue #25): reads { turns, session, vars } as JSON
+// from stdin and answers with { content, tokens } as JSON on stdout. No model, no network.
 // Deliberate behaviours for tests: "fehler" exits with code 2, "kaputt" prints no JSON,
-// "langsam" answers after two seconds.
-import { stdin, stdout, stderr, exit } from "node:process";
+// "langsam" answers after two seconds, "variablen" answers with the variables of the case as
+// it got them on stdin and in the environment (issue #119).
+import { env, stdin, stdout, stderr, exit } from "node:process";
 
 const answers = {
   "Wie lauten die Öffnungszeiten des Kundenservice?":
@@ -11,6 +12,15 @@ const answers = {
     "Sie können Artikel innerhalb von 30 Tagen nach Erhalt zurückgeben.",
 };
 const fallback = "Dazu habe ich leider keine Informationen.";
+
+/** The variables of the case as the adapter sets them in the environment (AIQA_VAR_name). */
+function variablesFromEnv() {
+  return Object.fromEntries(
+    Object.entries(env)
+      .filter(([name]) => name.toUpperCase().startsWith("AIQA_VAR_"))
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
+}
 
 let input = "";
 stdin.setEncoding("utf8");
@@ -30,7 +40,10 @@ stdin.on("end", async () => {
   if (message === "langsam") {
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
-  const content = answers[message] ?? fallback;
+  const content =
+    message === "variablen"
+      ? JSON.stringify({ vars: request.vars ?? null, env: variablesFromEnv() })
+      : (answers[message] ?? fallback);
   const words = (text) => text.split(/\s+/).filter(Boolean).length;
   stdout.write(
     JSON.stringify({

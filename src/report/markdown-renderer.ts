@@ -5,6 +5,7 @@ import {
   type CaseReport,
   type ReportModel,
   type ReportTotals,
+  runNotes,
   SAMPLE_RESPONSE_LENGTH,
   type UnjudgedIteration,
 } from "./report-model.js";
@@ -219,7 +220,7 @@ export class MarkdownRenderer implements ReportRenderer {
       );
     }
     lines.push("");
-    const warnings = run.warnings ?? [];
+    const warnings = runNotes(run);
     if (warnings.length > 0) {
       lines.push("## Hinweise zum Lauf", "");
       for (const warning of warnings) lines.push(`- ${warning}`);

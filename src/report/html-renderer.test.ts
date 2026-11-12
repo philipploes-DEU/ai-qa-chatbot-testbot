@@ -319,6 +319,40 @@ describe("HtmlRenderer", () => {
   });
 });
 
+describe("calls without a token report (issue #131)", () => {
+  const withUsage = (unreportedCalls?: { target: number; judge: number }): ReportModel =>
+    buildReportModel({
+      run: {
+        ...run,
+        usage: {
+          calls: 3,
+          targetTokens: { input: 0, output: 0 },
+          judgeTokens: { input: 900, output: 90 },
+          ...(unreportedCalls === undefined ? {} : { unreportedCalls }),
+        },
+      },
+      iterations: [iteration("faq", 0)],
+      verdicts: [],
+      cases,
+    });
+
+  it("names them among the notes on the run", () => {
+    const html = new HtmlRenderer().render(withUsage({ target: 3, judge: 1 }), wirkmittelTheme);
+    expect(html).toContain("Hinweise zum Lauf");
+    expect(html).toContain(
+      "4 Aufrufe meldeten keine Tokens (Zielsystem: 3, Judge: 1). Sie fehlen im Token-Budget des Laufs.",
+    );
+  });
+
+  it("says nothing when every call reported tokens or the run has no count", () => {
+    for (const quiet of [withUsage({ target: 0, judge: 0 }), withUsage()]) {
+      const html = new HtmlRenderer().render(quiet, wirkmittelTheme);
+      expect(html).not.toContain("meldeten keine Tokens");
+      expect(html).not.toContain("Hinweise zum Lauf");
+    }
+  });
+});
+
 describe("iterations without a judge verdict (issue #83)", () => {
   const unjudged = model({
     iterations: [...iterations, iteration("faq", 2)],

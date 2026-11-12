@@ -6,7 +6,7 @@ bewertet die nicht-deterministischen Antworten mit LLM-Judges nach Rubrik, ergä
 deterministische Checks, sichert Fehlerquoten über mehrere Iterationen statistisch ab und erzeugt
 Reports.
 
-Status: Version 0.13.0. Adapter für HTTP mit JSON und gestreamten Antworten (NDJSON, Server-Sent
+Status: Version 0.14.0. Adapter für HTTP mit JSON und gestreamten Antworten (NDJSON, Server-Sent
 Events), OpenAI-kompatible Schnittstellen, Browser und lokale Kommandos, Login mit kurzlebigen
 Tokens, Einrichtung aus einem cURL-Aufruf, Variablen je Fall, Platzhalter mit Werten aus
 Datenquellen, erwarteter HTTP-Status, Bedingungen auf JSON-Pfade mit eigener Pass-Rate,
@@ -613,6 +613,9 @@ So arbeitet der Judge:
 - Das Urteil ist JSON gegen ein Schema. Antwortet das Modell ungültig, bekommt es die Begründung
   und darf einmal korrigieren. Scheitert auch das, bleibt die Iteration ohne Judge-Urteil, der
   Fehler erscheint im Lauf, nicht als Fehlschlag des Zielsystems.
+- `judge.maxRepairs` legt die Zahl dieser Korrekturen fest, Standard 1. Mit 0 gibt es keine
+  Korrektur, die erste ungültige Antwort ist dann ein Judge-Fehler. Jede Korrektur ist ein
+  weiterer Aufruf des Judge-Modells mit dem ganzen bisherigen Auftrag als Eingabe.
 - `judge.maxOutputTokens` begrenzt die Ausgabe je Judge-Aufruf, gesendet als `max_tokens`. Ohne
   Angabe gibt es keine Grenze. Eine an der Grenze abgeschnittene Antwort ist ein Judge-Fehler
   ohne Korrektur, nie ein Urteil. Bei Modellen, die vor der Antwort nachdenken, legt der
@@ -626,6 +629,13 @@ So arbeitet der Judge:
   Der Report zeigt sie als Kennzahl und Liste "Ohne Judge-Urteil". Ein Treffer in
   `mustNotClaim` zählt ohne Urteil als Fehlschlag, bis ein Judge-Urteil vorliegt. `aiqa judge
 --run` bewertet sie nach. Hintergrund in [ADR 0019](docs/adr/0019-ohne-judge-urteil.md).
+- Judge-Fehler und Ablehnungen brechen den Lauf nicht ab. Er endet mit `status: completed` und
+  `aiqa run` mit Exit-Code 0, auch wenn kein einziges Judge-Urteil zustande kam. Eine Pipeline
+  erkennt den Fall an drei Stellen: an der Abschlusszeile von `aiqa run` ("ohne Judge-Urteil",
+  "Judge-Fehler", "Ablehnungen durch den Judge"), an den Einträgen in
+  `runs/<lauf>/judge-failures.jsonl` und im Report unter "Ohne Judge-Urteil". Die Gates sehen
+  solche Iterationen nicht, weil sie aus der Pass-Rate fallen. Dafür gibt es das eigene Gate
+  `gates.maxUnjudgedRate`, siehe Abschnitt 8.
 - Jedes Urteil trägt `judgeModel` und `promptVersion`. Der Judge-Prompt liegt versioniert unter
   `src/judge/prompts/`, eine Änderung ist eine neue Version.
 - Judge und Zielsystem müssen verschiedene Modelle sein, sonst bewertet ein Modell seine
@@ -1097,8 +1107,9 @@ Zielsysteme lehnt der Befehl ab, JUnit gibt es nur für einen Lauf. Inhalt:
   Entwürfe und die Hinweise der Läufe.
 - Aufwand je Lauf: Aufrufe des Zielsystems und Tokens von Zielsystem und Judge. Läufe ab 0.8
   schreiben sie beim Abschluss als `usage` nach `run.json`, ältere zeigen "nicht erfasst".
-  Aufrufe ohne Tokenmeldung stehen als `usage.unreportedCalls` daneben. Der Report nennt ihre
-  Zahl, weil ihre Tokens in den Spalten und im Token-Budget fehlen.
+  Aufrufe ohne Tokenmeldung stehen als `usage.unreportedCalls` daneben. Der Übergabe-Report
+  nennt ihre Zahl unter dem Aufwand, weil ihre Tokens in den Spalten und im Token-Budget fehlen.
+  Der Report je Lauf nennt sie unter "Hinweise zum Lauf".
 
 `outOfScope` steht in Plan oder Goldset, ein Satz je Bereich, und landet beim Lauf in
 `run.json`:
@@ -1273,6 +1284,7 @@ gates:
   minPassRate: 0.9 # Pass-Rate über alle Iterationen mit Urteil
   maxCriticalFails: 0 # gescheiterte Iterationen kritischer Fälle
   maxRegressionPoints: 10 # größter Rückgang eines Falls gegenüber dem Vorlauf in Punkten
+  maxUnjudgedRate: 0.1 # größter Anteil der Iterationen ohne Judge-Urteil
 budget:
   maxCallsPerRun: 500 # harte Grenze je Lauf, egal was der Plan erlaubt
 ```
@@ -1280,6 +1292,11 @@ budget:
 `aiqa gate --run latest --base previous` prüft die Gates, schreibt das Ergebnis als JSON nach
 `reports/gate-<lauf>.json` und endet mit Exit-Code 1, wenn eines reißt. GitHub meldet den
 fehlgeschlagenen Job. Ohne Vorlauf wird das Regressions-Gate übersprungen und genannt.
+`maxUnjudgedRate` misst, bei welchem Anteil der Iterationen der Judge gefragt wurde und kein
+Urteil lieferte, weil er ablehnte oder scheiterte. Solche Iterationen fallen aus der Pass-Rate,
+ohne dieses Gate bleibt ein Judge, der überall scheitert, in der Pipeline unbemerkt. Mit 0 reißt
+das Gate beim ersten Ausfall. Wurde der Judge für keine Iteration gefragt, wird es übersprungen
+und genannt. Hintergrund in [ADR 0028](docs/adr/0028-gate-ohne-judge-urteil.md).
 `budget.maxCallsPerRun` deckelt jeden Lauf unabhängig vom Plan, damit ein nächtlicher Lauf nicht
 unbemerkt teuer wird. Benachrichtigungen per E-Mail oder Webhook gibt es nicht, dafür genügt
 die Benachrichtigung von GitHub.
@@ -1306,7 +1323,7 @@ die Benachrichtigung von GitHub.
 
 ## 10. Status, Lizenz, Mitmachen, Kontakt
 
-- Status: Version 0.13.0 vom 12.11.2026, Änderungen in [CHANGELOG.md](CHANGELOG.md). Die
+- Status: Version 0.14.0 vom 12.11.2026, Änderungen in [CHANGELOG.md](CHANGELOG.md). Die
   Meilensteine Foundation, Dialoge und Agenten sowie MVP mit dem ersten echten Zielsystem sind
   abgeschlossen. Erledigt ist, was in einem Release enthalten ist.
 - Herausgeber: Philipp Löschner, Wirkmittel AI, https://wirkmittel.ai, E-Mail

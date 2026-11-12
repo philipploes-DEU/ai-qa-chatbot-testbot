@@ -87,7 +87,8 @@ nächsten Aufruf einsetzen.
   Position der Antwort das Urteil nicht bestimmt.
 - Regelmäßig laufen: eine Vorlage für GitHub Actions fährt den Lauf nächtlich, von Hand oder
   nach einem Deployment. Gates in der Konfiguration (Mindest-Pass-Rate, kritische Fehlschläge,
-  Rückgang gegenüber dem Vorlauf) lassen den Job scheitern, ein Budget je Lauf deckelt die Kosten.
+  Rückgang gegenüber dem Vorlauf, Anteil der Iterationen ohne Judge-Urteil) lassen den Job
+  scheitern, ein Budget je Lauf deckelt die Kosten.
 
 Was heute noch nicht geht: PDF-Export. Die
 Reihenfolge steht als Issues im Repository.

@@ -3,6 +3,16 @@
 Alle nennenswerten Änderungen an AI QA. Erzeugt aus Conventional Commits mit git-cliff.
 Issue-Nummern beziehen sich auf das private Entwicklungs-Repository (ADR 0023).
 
+## [0.14.0] vom 12.11.2026
+
+### Neue Funktionen
+
+- **report:** Add a gate for iterations without a judge verdict (#133) (#134)
+
+### Dokumentation
+
+- **report:** Name calls without a token report in the report of a run (#131) (#132)
+
 ## [0.13.0] vom 12.11.2026
 
 ### Neue Funktionen

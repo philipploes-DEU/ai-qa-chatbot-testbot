@@ -18,7 +18,7 @@ import {
   SEVERITY_LABELS,
   shortReason,
 } from "./markdown-renderer.js";
-import type { CaseReport, ReportModel, TrendPoint } from "./report-model.js";
+import { type CaseReport, type ReportModel, runNotes, type TrendPoint } from "./report-model.js";
 import type { ReportRenderer } from "./report-renderer.js";
 import type { FontFaceSource, HtmlStyle, ReportTheme } from "./themes/default/theme.js";
 import { wirkmittelTheme } from "./themes/wirkmittel/theme.js";
@@ -291,7 +291,7 @@ function tilesSection(model: ReportModel): string {
 }
 
 function warningsSection(model: ReportModel): string {
-  const warnings = [...(model.run.warnings ?? [])];
+  const warnings = runNotes(model.run);
   if (model.run.status === "aborted") {
     warnings.unshift(
       `Unvollständig: der Lauf wurde abgebrochen${model.run.abortReason === undefined ? "." : `: ${model.run.abortReason}.`}`,

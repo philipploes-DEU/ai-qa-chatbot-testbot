@@ -89,6 +89,7 @@ export function renderWorkspaceConfig(targetName: string): string {
     "#   minPassRate: 0.9            # Pass-Rate über alle Iterationen mit Urteil",
     "#   maxCriticalFails: 0         # gescheiterte Iterationen kritischer Fälle",
     "#   maxRegressionPoints: 10     # größter Rückgang eines Falls gegenüber dem Vorlauf",
+    "#   maxUnjudgedRate: 0.1        # größter Anteil der Iterationen ohne Judge-Urteil",
     "# Harte Grenze je Lauf, egal was der Plan erlaubt.",
     "# budget:",
     "#   maxCallsPerRun: 500",

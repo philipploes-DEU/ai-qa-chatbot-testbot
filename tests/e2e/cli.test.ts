@@ -779,7 +779,7 @@ describe("aiqa run against the mock target over http", () => {
     await writeFile(
       configFile,
       original +
-        "gates:\n  minPassRate: 0.1\n  maxCriticalFails: 100\n  maxRegressionPoints: 100\n",
+        "gates:\n  minPassRate: 0.1\n  maxCriticalFails: 100\n  maxRegressionPoints: 100\n  maxUnjudgedRate: 0\n",
       "utf8",
     );
     const ok = collectIo(workspace);
@@ -799,7 +799,12 @@ describe("aiqa run against the mock target over http", () => {
       "minPassRate",
       "maxCriticalFails",
       "maxRegressionPoints",
+      "maxUnjudgedRate",
     ]);
+    // The judge of the mock rated every iteration it was asked for (issue #133).
+    expect(text).toMatch(
+      /OK {5}maxUnjudgedRate: 0 von \d+ Iterationen ohne Judge-Urteil, erlaubt sind 0,0 %/,
+    );
 
     await writeFile(configFile, original + "gates:\n  minPassRate: 1\n", "utf8");
     const broken = collectIo(workspace);

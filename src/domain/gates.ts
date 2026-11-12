@@ -11,6 +11,12 @@ export const GatesConfigSchema = z.strictObject({
   maxCriticalFails: z.number().int().nonnegative().optional(),
   /** Largest pass rate drop of a case against the base run, in points (0 to 100). */
   maxRegressionPoints: z.number().min(0).max(100).optional(),
+  /**
+   * Largest share of iterations without a judge verdict among those the judge was asked for,
+   * between 0 and 1 (issue #133, ADR 0028). Such iterations leave the pass rate, so no other
+   * gate sees a judge that fails.
+   */
+  maxUnjudgedRate: z.number().min(0).max(1).optional(),
 });
 export type GatesConfig = z.infer<typeof GatesConfigSchema>;
 

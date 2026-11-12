@@ -5,7 +5,7 @@ import type { ReportModel } from "./report-model.js";
 export { GatesConfigSchema, type GatesConfig } from "../domain/gates.js";
 
 export interface GateResult {
-  name: "minPassRate" | "maxCriticalFails" | "maxRegressionPoints";
+  name: "minPassRate" | "maxCriticalFails" | "maxRegressionPoints" | "maxUnjudgedRate";
   /** Human readable limit. */
   limit: string;
   /** Human readable measured value. */
@@ -103,6 +103,35 @@ export function evaluateGates(
             : pass
               ? `größter Rückgang ${points.toFixed(1).replace(".", ",")} Punkte bei ${worst.caseId}, erlaubt sind ${String(gates.maxRegressionPoints)}`
               : `Rückgang um ${points.toFixed(1).replace(".", ",")} Punkte bei ${worst.caseId} übersteigt die erlaubten ${String(gates.maxRegressionPoints)}`,
+      });
+    }
+  }
+
+  if (gates.maxUnjudgedRate !== undefined) {
+    const { refused, errors } = report.totals.withoutJudgeVerdict;
+    const unjudged = refused + errors;
+    const asked = report.totals.judgeRatedIterations + unjudged;
+    const limit = percent(gates.maxUnjudgedRate);
+    if (asked === 0) {
+      results.push({
+        name: "maxUnjudgedRate",
+        limit,
+        actual: "kein Judge-Aufruf",
+        pass: null,
+        reason: "der Judge wurde für keine Iteration gefragt, Anteil nicht messbar",
+      });
+    } else {
+      const rate = unjudged / asked;
+      const pass = rate <= gates.maxUnjudgedRate;
+      const counts = `${String(unjudged)} von ${String(asked)} Iterationen ohne Judge-Urteil`;
+      results.push({
+        name: "maxUnjudgedRate",
+        limit,
+        actual: percent(rate),
+        pass,
+        reason: pass
+          ? `${counts}, erlaubt sind ${limit}`
+          : `${counts} (Judge lehnt ab: ${String(refused)}, Judge-Fehler: ${String(errors)}), das sind ${percent(rate)} und mehr als die erlaubten ${limit}`,
       });
     }
   }

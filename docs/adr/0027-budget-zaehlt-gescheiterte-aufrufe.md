@@ -35,7 +35,8 @@ Lücken machten `maxTokens` zu einer weichen Grenze:
    keine Tokenmeldung und der Fehlertext bleibt, wie er war.
 5. AI QA schätzt keine Tokens. Aufrufe ohne Tokenmeldung werden gezählt, getrennt nach
    Zielsystem und Judge, und stehen als `usage.unreportedCalls` in `run.json`. `aiqa run` und
-   der Übergabe-Report nennen die Zahl, sobald sie größer als null ist.
+   der Übergabe-Report nennen die Zahl, sobald sie größer als null ist. Seit Issue #131 nennt
+   sie auch der Report je Lauf unter "Hinweise zum Lauf".
 
 ## Begründung
 

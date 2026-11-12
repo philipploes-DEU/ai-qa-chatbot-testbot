@@ -76,6 +76,11 @@ export interface ReportTotals {
    * pass rate unless a check failed; countedAsFailed says how many of them still count.
    */
   withoutJudgeVerdict: { refused: number; errors: number; countedAsFailed: number };
+  /**
+   * Iterations with a judge verdict, drafts left out. Together with withoutJudgeVerdict these
+   * are the iterations the judge was asked for (issue #133).
+   */
+  judgeRatedIterations: number;
 }
 
 /** An iteration without a judge verdict, for the list in the report (issue #83). */
@@ -389,6 +394,32 @@ export function unjudgedIterations(
     countedAsFailed: failure.fallback !== undefined || failed.has(ref),
     ...(failure.fallback !== undefined ? { fallback: failure.fallback } : {}),
   }));
+}
+
+/**
+ * How many calls reported no tokens, as a sentence for the reports, or null when there were
+ * none or the run has no count (issues #125 and #131). What follows from it differs per report,
+ * so each adds its own second sentence.
+ */
+export function unreportedCallsSentence(
+  calls: { target: number; judge: number } | undefined,
+): string | null {
+  if (calls === undefined) return null;
+  const total = calls.target + calls.judge;
+  if (total === 0) return null;
+  return `${String(total)} ${total === 1 ? "Aufruf meldete" : "Aufrufe meldeten"} keine Tokens (Zielsystem: ${String(calls.target)}, Judge: ${String(calls.judge)}).`;
+}
+
+/**
+ * The notes on one run for its report: the warnings recorded with the run, then the calls
+ * without a token report, because the token budget of the run did not see them (issue #131).
+ */
+export function runNotes(run: Run): string[] {
+  const unreported = unreportedCallsSentence(run.usage?.unreportedCalls);
+  return [
+    ...(run.warnings ?? []),
+    ...(unreported === null ? [] : [`${unreported} Sie fehlen im Token-Budget des Laufs.`]),
+  ];
 }
 
 /**
@@ -747,6 +778,11 @@ export function buildReportModel(input: ReportInput): ReportModel {
       errors: unjudged.filter((entry) => entry.kind === "error").length,
       countedAsFailed: unjudged.filter((entry) => entry.countedAsFailed).length,
     },
+    judgeRatedIterations: new Set(
+      input.verdicts
+        .filter((verdict) => verdict.source === "judge" && !drafts.has(verdict.caseId))
+        .map((verdict) => `${verdict.caseId}#${String(verdict.index)}`),
+    ).size,
   };
 
   return {

@@ -17,7 +17,12 @@ import {
   markdownTable,
   SEVERITY_LABELS,
 } from "./markdown-renderer.js";
-import type { CategoryReport, ReportModel, ReportTotals } from "./report-model.js";
+import {
+  type CategoryReport,
+  type ReportModel,
+  type ReportTotals,
+  unreportedCallsSentence,
+} from "./report-model.js";
 import type { Renderer } from "./report-renderer.js";
 import { defaultTheme, type ReportTheme } from "./themes/default/theme.js";
 import { wirkmittelTheme } from "./themes/wirkmittel/theme.js";
@@ -504,11 +509,9 @@ function usageNote(model: HandoverModel): string | null {
       `${plural(missing, "Lauf", "Läufe")} ohne erfassten Aufwand, etwa aus einer Version vor AI QA 0.8 oder nicht regulär beendet. ${missing === 1 ? "Er fehlt" : "Sie fehlen"} in der Summe.`,
     );
   }
-  const { target, judge } = model.totals.usage.unreportedCalls;
-  if (target + judge > 0) {
-    notes.push(
-      `${plural(target + judge, "Aufruf meldete", "Aufrufe meldeten")} keine Tokens (Zielsystem: ${String(target)}, Judge: ${String(judge)}). Sie fehlen in den Spalten und im Token-Budget.`,
-    );
+  const unreported = unreportedCallsSentence(model.totals.usage.unreportedCalls);
+  if (unreported !== null) {
+    notes.push(`${unreported} Sie fehlen in den Spalten und im Token-Budget.`);
   }
   // Runs from before AI QA counted such calls: there the tokens of failed judge calls are lost.
   const { refused, errors } = model.totals.withoutJudgeVerdict;

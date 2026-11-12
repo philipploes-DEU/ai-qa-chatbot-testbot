@@ -240,6 +240,48 @@ describe("MarkdownRenderer judge and warnings", () => {
   });
 });
 
+describe("MarkdownRenderer calls without a token report (issue #131)", () => {
+  const render = (unreportedCalls?: { target: number; judge: number }, warnings?: string[]) =>
+    new MarkdownRenderer().render(
+      buildReportModel({
+        run: {
+          ...run,
+          ...(warnings === undefined ? {} : { warnings }),
+          usage: {
+            calls: 1,
+            targetTokens: { input: 0, output: 0 },
+            judgeTokens: { input: 0, output: 0 },
+            ...(unreportedCalls === undefined ? {} : { unreportedCalls }),
+          },
+        },
+        iterations: [],
+        verdicts: [],
+      }),
+    );
+
+  it("names them among the notes on the run, in the singular for one call", () => {
+    const markdown = render({ target: 1, judge: 0 });
+    expect(markdown).toContain("## Hinweise zum Lauf");
+    expect(markdown).toContain(
+      "- 1 Aufruf meldete keine Tokens (Zielsystem: 1, Judge: 0). Sie fehlen im Token-Budget des Laufs.",
+    );
+  });
+
+  it("lists them after the warnings of the run", () => {
+    const markdown = render({ target: 2, judge: 3 }, ["Erster Hinweis."]);
+    expect(markdown).toContain(
+      "- Erster Hinweis.\n- 5 Aufrufe meldeten keine Tokens (Zielsystem: 2, Judge: 3). Sie fehlen im Token-Budget des Laufs.",
+    );
+  });
+
+  it("says nothing when every call reported tokens or the run has no count", () => {
+    for (const markdown of [render({ target: 0, judge: 0 }), render()]) {
+      expect(markdown).not.toContain("meldete");
+      expect(markdown).not.toContain("## Hinweise zum Lauf");
+    }
+  });
+});
+
 describe("MarkdownRenderer aborted run", () => {
   it("marks an aborted run as incomplete with its reason", () => {
     const model = buildReportModel({

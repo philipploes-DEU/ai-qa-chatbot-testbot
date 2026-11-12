@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { TargetConfigSchema } from "../domain/target-config.js";
-import { TimeoutError } from "./errors.js";
+import { FailedCallError, TimeoutError } from "./errors.js";
 import { ScriptAdapter, splitCommand } from "./script.js";
 
 const script = path.resolve("examples", "script-target", "answer.mjs");
@@ -63,6 +63,25 @@ describe("ScriptAdapter", () => {
     await expect(adapter.send([{ role: "user", content: "fehler" }])).rejects.toThrow(
       /^exit 2: Absichtlicher Fehler/,
     );
+  });
+
+  it("reads the tokens a failing script reports on stdout (issue #125)", async () => {
+    const adapter = new ScriptAdapter(target());
+    const error: unknown = await adapter
+      .send([{ role: "user", content: "fehler mit tokens" }])
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(FailedCallError);
+    expect((error as FailedCallError).message).toMatch(/^exit 2: Absichtlicher Fehler/);
+    expect((error as FailedCallError).tokens).toEqual({ input: 3, output: 0 });
+  });
+
+  it("reports no tokens for a failing script that prints none", async () => {
+    const adapter = new ScriptAdapter(target());
+    const error: unknown = await adapter
+      .send([{ role: "user", content: "fehler" }])
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(FailedCallError);
+    expect((error as FailedCallError).tokens).toBeUndefined();
   });
 
   it("rejects output that is not the expected JSON", async () => {

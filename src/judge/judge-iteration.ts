@@ -2,18 +2,30 @@ import type { TargetResponse } from "../adapters/target.js";
 import type { Tokens, Turn } from "../domain/common.js";
 import type { Round } from "../domain/iteration.js";
 import type { TestCase } from "../domain/test-case.js";
+import {
+  addUsage,
+  type CallUsage,
+  NO_USAGE,
+  ONE_UNREPORTED_CALL,
+  usageOfError,
+  withUsage,
+} from "../providers/usage.js";
 import type { Judge, JudgeOutcome, JudgeVerdict } from "./judge.js";
 import type { SourceDocument } from "./sources.js";
 
 export interface JudgedIteration {
   verdicts: JudgeVerdict[];
   tokens: Tokens;
+  /** Judge calls that reported no tokens (issue #125). */
+  unreportedCalls: number;
   pass: boolean;
 }
 
-function addTokens(sum: Tokens, tokens: Tokens | undefined): Tokens {
-  if (tokens === undefined) return sum;
-  return { input: sum.input + tokens.input, output: sum.output + tokens.output };
+function usageOf(outcome: JudgeOutcome): CallUsage {
+  return {
+    tokens: outcome.tokens ?? { input: 0, output: 0 },
+    unreportedCalls: outcome.unreportedCalls,
+  };
 }
 
 /** Reference answers from the script: the assistant turn that follows each user turn. */
@@ -65,13 +77,25 @@ export async function judgeIteration(
   sources: readonly SourceDocument[] = [],
 ): Promise<JudgedIteration> {
   const verdicts: JudgeVerdict[] = [];
-  let tokens: Tokens = { input: 0, output: 0 };
+  let usage: CallUsage = NO_USAGE;
+  // One rating. A failure leaves with what the ratings before it cost plus its own share, so
+  // the budget of a run sees the whole iteration (issue #125).
+  const rate = async (call: () => Promise<JudgeOutcome>): Promise<JudgeOutcome> => {
+    try {
+      const outcome = await call();
+      usage = addUsage(usage, usageOf(outcome));
+      return outcome;
+    } catch (error) {
+      throw withUsage(error, addUsage(usage, usageOfError(error) ?? ONE_UNREPORTED_CALL));
+    }
+  };
 
   if (rounds === undefined || rounds.length === 0) {
-    const outcome = await judge.judge(testCase, final, sources);
+    const outcome = await rate(() => judge.judge(testCase, final, sources));
     return {
       verdicts: [outcome.verdict],
-      tokens: addTokens(tokens, outcome.tokens),
+      tokens: usage.tokens,
+      unreportedCalls: usage.unreportedCalls,
       pass: outcome.verdict.pass,
     };
   }
@@ -82,17 +106,17 @@ export async function judgeIteration(
   for (const [position, round] of rounds.entries()) {
     history.push(requestOf(round));
     if (round.response === null) break;
+    const response = round.response;
     const reference = references[position];
     let outcome: JudgeOutcome | undefined;
     if (position === lastRound) {
       if (judge.applies(testCase)) {
-        outcome = await judge.judgeLastRound(testCase, history, round.response, sources);
+        outcome = await rate(() => judge.judgeLastRound(testCase, history, response, sources));
       }
     } else if (reference !== undefined) {
-      outcome = await judge.judgeRound(testCase, history, round.response, reference, sources);
+      outcome = await rate(() => judge.judgeRound(testCase, history, response, reference, sources));
     }
     if (outcome !== undefined) {
-      tokens = addTokens(tokens, outcome.tokens);
       verdicts.push({
         ...outcome.verdict,
         round: position + 1,
@@ -103,12 +127,16 @@ export async function judgeIteration(
         reasoning: `Runde ${String(position + 1)}: ${outcome.verdict.reasoning}`,
       });
     }
-    history.push({ role: "assistant", content: round.response });
+    history.push({ role: "assistant", content: response });
   }
 
-  const whole = await judge.judgeDialog(testCase, transcriptOf(rounds));
-  tokens = addTokens(tokens, whole.tokens);
+  const whole = await rate(() => judge.judgeDialog(testCase, transcriptOf(rounds)));
   verdicts.push(whole.verdict);
 
-  return { verdicts, tokens, pass: verdicts.every((verdict) => verdict.pass) };
+  return {
+    verdicts,
+    tokens: usage.tokens,
+    unreportedCalls: usage.unreportedCalls,
+    pass: verdicts.every((verdict) => verdict.pass),
+  };
 }

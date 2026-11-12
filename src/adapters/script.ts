@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 
 import type { Tokens, Turn } from "../domain/common.js";
 import type { TargetConfig } from "../domain/target-config.js";
-import { excerpt, TimeoutError } from "./errors.js";
+import { excerpt, FailedCallError, TimeoutError } from "./errors.js";
 import { RateLimiter } from "./rate-limit.js";
 import type { SendOptions, TargetAdapter, TargetResponse } from "./target.js";
 
@@ -85,18 +85,36 @@ function parseOutput(stdout: string): ScriptOutput {
   }
   const output = data as { content: string; tokens?: unknown };
   const tokens = output.tokens;
-  if (
-    tokens !== undefined &&
-    (typeof tokens !== "object" ||
-      tokens === null ||
-      typeof (tokens as Tokens).input !== "number" ||
-      typeof (tokens as Tokens).output !== "number")
-  ) {
+  if (tokens !== undefined && !isTokens(tokens)) {
     throw new Error(
       `Skript-Antwort: tokens braucht input und output als Zahlen: ${excerpt(stdout)}`,
     );
   }
-  return { content: output.content, ...(tokens === undefined ? {} : { tokens: tokens as Tokens }) };
+  return { content: output.content, ...(tokens === undefined ? {} : { tokens }) };
+}
+
+function isTokens(value: unknown): value is Tokens {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Tokens).input === "number" &&
+    typeof (value as Tokens).output === "number"
+  );
+}
+
+/**
+ * The tokens a failed script still reported on stdout (issue #125): { tokens } as for an
+ * answer, content is not needed. Anything else on stdout means no report, never a second error.
+ */
+function tokensOfFailure(stdout: string): Tokens | undefined {
+  try {
+    const data: unknown = JSON.parse(stdout);
+    if (typeof data !== "object" || data === null) return undefined;
+    const tokens = (data as { tokens?: unknown }).tokens;
+    return isTokens(tokens) ? { input: tokens.input, output: tokens.output } : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -104,8 +122,10 @@ function parseOutput(stdout: string): ScriptOutput {
  * on stdin ({ turns, session, vars }) and reads the answer as JSON from stdout
  * ({ content, tokens? }). The variables of a case (issue #119) travel as vars on stdin and as
  * environment variables AIQA_VAR_<name>; a case without vars leaves both out.
- * A non-zero exit code or a timeout is an error of the iteration. No shell: the command line is
- * split into command and arguments, pipes and redirections are not interpreted.
+ * A non-zero exit code or a timeout is an error of the iteration. A script that fails after it
+ * spent tokens may still print { tokens } on stdout, they count against the budget
+ * (issue #125). No shell: the command line is split into command and arguments, pipes and
+ * redirections are not interpreted.
  */
 export class ScriptAdapter implements TargetAdapter {
   readonly name: string;
@@ -191,7 +211,10 @@ export class ScriptAdapter implements TargetAdapter {
         const latencyMs = performance.now() - started;
         if (code !== 0) {
           reject(
-            new Error(`exit ${String(code)}${stderr.trim() === "" ? "" : `: ${excerpt(stderr)}`}`),
+            new FailedCallError(
+              `exit ${String(code)}${stderr.trim() === "" ? "" : `: ${excerpt(stderr)}`}`,
+              tokensOfFailure(stdout),
+            ),
           );
           return;
         }

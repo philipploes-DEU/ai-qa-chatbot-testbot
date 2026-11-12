@@ -87,6 +87,14 @@ describe("aiqa end to end against the dummy target", () => {
     expect(verdicts.length).toBeGreaterThan(15);
     expect(text).toContain("probe-system-prompt-leak");
     expect(text).toMatch(/10 von 15 Iterationen bestanden/);
+    // The dummy target reports no tokens: the token budget saw none of the calls (issue #125).
+    expect(text).toContain(
+      "Ohne Tokenmeldung: 15 Aufrufe (Zielsystem: 15, Judge: 0). Ihre Tokens fehlen in der Summe und im Token-Budget.",
+    );
+    const run = JSON.parse(await readFile(path.join(runDir, "run.json"), "utf8")) as {
+      usage?: { unreportedCalls?: { target: number; judge: number } };
+    };
+    expect(run.usage?.unreportedCalls).toEqual({ target: 15, judge: 0 });
   });
 
   it("run refuses a target that is not configured", async () => {
@@ -571,6 +579,8 @@ describe("aiqa run against the mock target over http", () => {
     expect(text).toContain("Erwartet: 3 Aufrufe und bis zu 3 Judge-Aufrufe.");
     expect(text).toMatch(/Lauf \S+ abgebrochen: 1 von 1 Iterationen bestanden/);
     expect(io.err.join("\n")).toMatch(/Abbruch: Budget von 1 Tokens überschritten/);
+    // The mock reports no tokens, the judge does: only the judge counted against maxTokens.
+    expect(text).toContain("Ohne Tokenmeldung: 1 Aufruf (Zielsystem: 1, Judge: 0).");
 
     const runId = /Lauf (\S+) /.exec(text)?.[1] ?? "";
     const run = JSON.parse(

@@ -46,6 +46,10 @@ export interface HandoverUsage {
   judgeTokens: Tokens;
   /** Runs without a recorded usage; their effort is missing in the sums. */
   runsWithout: number;
+  /** Calls that reported no tokens; they are missing in the token sums (issue #125). */
+  unreportedCalls: { target: number; judge: number };
+  /** Runs with a recorded usage from before unreported calls were counted. */
+  runsWithoutCallCount: number;
 }
 
 export interface HandoverTotals extends Pick<ReportTotals, "withoutJudgeVerdict"> {
@@ -351,12 +355,21 @@ export function buildHandoverModel(input: HandoverInput): HandoverModel {
             targetTokens: addTokens(total.targetTokens, report.run.usage.targetTokens),
             judgeTokens: addTokens(total.judgeTokens, report.run.usage.judgeTokens),
             runsWithout: total.runsWithout,
+            unreportedCalls: {
+              target:
+                total.unreportedCalls.target + (report.run.usage.unreportedCalls?.target ?? 0),
+              judge: total.unreportedCalls.judge + (report.run.usage.unreportedCalls?.judge ?? 0),
+            },
+            runsWithoutCallCount:
+              total.runsWithoutCallCount + (report.run.usage.unreportedCalls === undefined ? 1 : 0),
           },
     {
       calls: 0,
       targetTokens: { input: 0, output: 0 },
       judgeTokens: { input: 0, output: 0 },
       runsWithout: 0,
+      unreportedCalls: { target: 0, judge: 0 },
+      runsWithoutCallCount: 0,
     },
   );
   const totals: HandoverTotals = {
@@ -491,8 +504,15 @@ function usageNote(model: HandoverModel): string | null {
       `${plural(missing, "Lauf", "Läufe")} ohne erfassten Aufwand, etwa aus einer Version vor AI QA 0.8 oder nicht regulär beendet. ${missing === 1 ? "Er fehlt" : "Sie fehlen"} in der Summe.`,
     );
   }
+  const { target, judge } = model.totals.usage.unreportedCalls;
+  if (target + judge > 0) {
+    notes.push(
+      `${plural(target + judge, "Aufruf meldete", "Aufrufe meldeten")} keine Tokens (Zielsystem: ${String(target)}, Judge: ${String(judge)}). Sie fehlen in den Spalten und im Token-Budget.`,
+    );
+  }
+  // Runs from before AI QA counted such calls: there the tokens of failed judge calls are lost.
   const { refused, errors } = model.totals.withoutJudgeVerdict;
-  if (refused + errors > 0) {
+  if (refused + errors > 0 && model.totals.usage.runsWithoutCallCount > 0) {
     notes.push(
       "Tokens abgelehnter oder gescheiterter Judge-Aufrufe sind nicht erfasst, die Judge-Spalte liegt dort zu niedrig.",
     );

@@ -15,6 +15,16 @@ export const RunUsageSchema = z.strictObject({
   calls: z.number().int().nonnegative(),
   targetTokens: TokensSchema,
   judgeTokens: TokensSchema,
+  /**
+   * Calls that reported no tokens, failed ones included: their tokens are missing above and
+   * in the token budget (issue #125, ADR 0027). Runs from before that count have none.
+   */
+  unreportedCalls: z
+    .strictObject({
+      target: z.number().int().nonnegative(),
+      judge: z.number().int().nonnegative(),
+    })
+    .optional(),
 });
 export type RunUsage = z.infer<typeof RunUsageSchema>;
 

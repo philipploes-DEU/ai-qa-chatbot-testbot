@@ -1,7 +1,12 @@
 import { randomInt } from "node:crypto";
 
 import { Deadline } from "../adapters/deadline.js";
-import { FatalTargetError, HttpStatusError, TimeoutError } from "../adapters/errors.js";
+import {
+  FailedCallError,
+  FatalTargetError,
+  HttpStatusError,
+  TimeoutError,
+} from "../adapters/errors.js";
 import { readPath } from "../adapters/response-path.js";
 import type { SendOptions, TargetAdapter, TargetResponse } from "../adapters/target.js";
 import type { Check } from "../checks/check.js";
@@ -21,6 +26,7 @@ import { judgeFailureOf } from "../judge/judge-failure.js";
 import { judgeIteration } from "../judge/judge-iteration.js";
 import type { Judge } from "../judge/judge.js";
 import type { SourceDocument } from "../judge/sources.js";
+import { ONE_UNREPORTED_CALL, usageOfError } from "../providers/usage.js";
 import type { ResultStore } from "../store/result-store.js";
 
 export interface RunProgressEvent {
@@ -84,6 +90,11 @@ export interface RunSummary {
   calls: number;
   /** Tokens of target and judge together, as far as they reported any. */
   tokens: Tokens;
+  /**
+   * Calls that reported no tokens, failed ones included: what the token budget did not see
+   * (issue #125, ADR 0027).
+   */
+  unreportedCalls: { target: number; judge: number };
   status: RunStatus;
   /** Set when the budget stopped the run before every planned iteration. */
   abortReason?: string;
@@ -194,7 +205,15 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 
 type CallOutcome =
   | { ok: true; response: TargetResponse }
-  | { ok: false; error: string; reason: string; latencyMs: number; status?: number };
+  | {
+      ok: false;
+      error: string;
+      reason: string;
+      latencyMs: number;
+      status?: number;
+      /** Tokens the target reported for the failed call (issue #125). */
+      tokens?: Tokens;
+    };
 
 async function callTarget(
   adapter: TargetAdapter,
@@ -223,6 +242,9 @@ async function callTarget(
       reason: `Aufruf fehlgeschlagen: ${message}`,
       latencyMs,
       ...(error instanceof HttpStatusError ? { status: error.status } : {}),
+      ...(error instanceof FailedCallError && error.tokens !== undefined
+        ? { tokens: error.tokens }
+        : {}),
     };
   }
 }
@@ -235,6 +257,8 @@ interface CaseOutcome {
   latencyMs: number;
   tokens?: Tokens;
   calls: number;
+  /** Calls among them that reported no tokens (issue #125). */
+  unreportedCalls: number;
   error?: string;
   reason?: string;
   /** A capture found nothing; the dialog ended there and fails with a check verdict (#84). */
@@ -263,6 +287,7 @@ async function runDialog(
   const rounds: Round[] = [];
   let latencyMs = 0;
   let tokens: Tokens | undefined;
+  let unreportedCalls = 0;
   let last: TargetResponse | undefined;
   const captured = new Map<string, unknown>();
   try {
@@ -293,6 +318,9 @@ async function runDialog(
         Object.keys(options).length === 0 ? undefined : options,
       );
       const index = rounds.length;
+      const reported = outcome.ok ? outcome.response.tokens : outcome.tokens;
+      if (reported === undefined) unreportedCalls++;
+      else tokens = addTokens(tokens ?? { input: 0, output: 0 }, reported);
       if (!outcome.ok) {
         rounds.push({
           index,
@@ -300,6 +328,7 @@ async function runDialog(
           ...(followUp !== undefined ? { followUp } : {}),
           response: null,
           latencyMs: outcome.latencyMs,
+          ...(outcome.tokens !== undefined ? { tokens: outcome.tokens } : {}),
           error: outcome.error,
         });
         return {
@@ -308,6 +337,7 @@ async function runDialog(
           latencyMs: latencyMs + outcome.latencyMs,
           ...(tokens !== undefined ? { tokens } : {}),
           calls: rounds.length,
+          unreportedCalls,
           error: outcome.error,
           reason: `Runde ${String(index + 1)}: ${outcome.reason}`,
           ...(outcome.status !== undefined ? { status: outcome.status } : {}),
@@ -315,9 +345,6 @@ async function runDialog(
       }
       last = outcome.response;
       latencyMs += outcome.response.latencyMs;
-      if (outcome.response.tokens !== undefined) {
-        tokens = addTokens(tokens ?? { input: 0, output: 0 }, outcome.response.tokens);
-      }
       rounds.push({
         index,
         request: plain,
@@ -342,6 +369,7 @@ async function runDialog(
             latencyMs,
             ...(tokens !== undefined ? { tokens } : {}),
             calls: rounds.length,
+            unreportedCalls,
             captureFailure: `Runde ${String(index + 1)}: ${pointer} fehlt in der Antwort, der Folgeaufruf ist nicht möglich`,
           };
         }
@@ -357,6 +385,7 @@ async function runDialog(
       rounds,
       latencyMs,
       calls: 0,
+      unreportedCalls: 0,
       error: "kein user-Zug",
       reason: "Dialog ohne Nutzerzug",
     };
@@ -368,6 +397,7 @@ async function runDialog(
     latencyMs,
     ...(tokens !== undefined ? { tokens } : {}),
     calls: rounds.length,
+    unreportedCalls,
     ...(last.status !== undefined ? { status: last.status } : {}),
   };
 }
@@ -389,7 +419,9 @@ async function runSingle(
     return {
       ok: false,
       latencyMs: outcome.latencyMs,
+      ...(outcome.tokens !== undefined ? { tokens: outcome.tokens } : {}),
       calls: 1,
+      unreportedCalls: outcome.tokens === undefined ? 1 : 0,
       error: outcome.error,
       reason: outcome.reason,
       ...(outcome.status !== undefined ? { status: outcome.status } : {}),
@@ -401,6 +433,7 @@ async function runSingle(
     latencyMs: outcome.response.latencyMs,
     ...(outcome.response.tokens !== undefined ? { tokens: outcome.response.tokens } : {}),
     calls: 1,
+    unreportedCalls: outcome.response.tokens === undefined ? 1 : 0,
     ...(outcome.response.status !== undefined ? { status: outcome.response.status } : {}),
   };
 }
@@ -417,7 +450,9 @@ async function runSingle(
  * A judge failure leaves the iteration without judge verdict and is reported, never counted
  * against the target.
  * The plan's budget is a hard stop (issue #8): maxCalls bounds the calls to the target,
- * maxTokens the tokens of target and judge together. When a limit is reached the run ends
+ * maxTokens the tokens of target and judge together, those of failed calls included as far
+ * as they were reported (issue #125, ADR 0027). Calls without a token report are counted, so
+ * the report can say what the token budget did not see. When a limit is reached the run ends
  * cleanly, marked aborted with the reason, and what was recorded stays valid. A FatalTargetError
  * of the adapter, such as a failed login for auth token (issue #73), ends the run the same way;
  * the interrupted iteration is not recorded.
@@ -531,6 +566,7 @@ export async function runPlan(options: RunPlanOptions): Promise<RunSummary> {
   let calls = 0;
   let tokens: Tokens = { input: 0, output: 0 };
   let judgeTokens: Tokens = { input: 0, output: 0 };
+  const unreportedCalls = { target: 0, judge: 0 };
   let abortReason: string | undefined;
   const maxTokens = plan.budget.maxTokens;
   const maxCalls =
@@ -572,6 +608,7 @@ export async function runPlan(options: RunPlanOptions): Promise<RunSummary> {
         break runLoop;
       }
       calls += outcome.calls;
+      unreportedCalls.target += outcome.unreportedCalls;
       // A refusal with the status the case expects is the wanted behaviour, no error (#79).
       const expectedStatus = testCase.expected.status;
       const statusMatched =
@@ -658,8 +695,14 @@ export async function runPlan(options: RunPlanOptions): Promise<RunSummary> {
             judgedIterations++;
             tokens = addTokens(tokens, rated.tokens);
             judgeTokens = addTokens(judgeTokens, rated.tokens);
+            unreportedCalls.judge += rated.unreportedCalls;
             pass = rated.pass;
           } catch (error) {
+            // The failed rating was paid for as well, as far as the provider knows (#125).
+            const spent = usageOfError(error) ?? ONE_UNREPORTED_CALL;
+            tokens = addTokens(tokens, spent.tokens);
+            judgeTokens = addTokens(judgeTokens, spent.tokens);
+            unreportedCalls.judge += spent.unreportedCalls;
             const failure = judgeFailureOf(error, judge, testCase, outcome.response.content, {
               runId,
               index,
@@ -713,6 +756,7 @@ export async function runPlan(options: RunPlanOptions): Promise<RunSummary> {
         output: tokens.output - judgeTokens.output,
       },
       judgeTokens,
+      unreportedCalls,
     },
   });
   return {
@@ -727,6 +771,7 @@ export async function runPlan(options: RunPlanOptions): Promise<RunSummary> {
     unjudgedIterations,
     calls,
     tokens,
+    unreportedCalls,
     status,
     ...(abortReason !== undefined ? { abortReason } : {}),
   };

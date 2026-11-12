@@ -11,5 +11,7 @@ export function createJudge(
   env: Environment = process.env,
   options: Omit<TargetHttpOptions, "env"> = {},
 ): Judge {
-  return new Judge(createProvider(config, env, options), judgePrompt(config.promptVersion));
+  return new Judge(createProvider(config, env, options), judgePrompt(config.promptVersion), {
+    ...(config.maxOutputTokens !== undefined ? { maxOutputTokens: config.maxOutputTokens } : {}),
+  });
 }

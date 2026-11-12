@@ -194,7 +194,58 @@ describe("buildHandoverModel", () => {
       targetTokens: { input: 0, output: 0 },
       judgeTokens: { input: 900, output: 90 },
       runsWithout: 1,
+      unreportedCalls: { target: 0, judge: 0 },
+      runsWithoutCallCount: 1,
     });
+  });
+
+  it("names the calls whose tokens nobody reported (issue #125)", () => {
+    const counted = buildHandoverModel({
+      reports: [
+        buildReportModel({
+          run: {
+            ...first,
+            usage: {
+              calls: 80,
+              targetTokens: { input: 1000, output: 400 },
+              judgeTokens: { input: 900, output: 90 },
+              unreportedCalls: { target: 4, judge: 1 },
+            },
+          },
+          iterations: [],
+          verdicts: [],
+        }),
+      ],
+    });
+    expect(counted.totals.usage.unreportedCalls).toEqual({ target: 4, judge: 1 });
+    expect(counted.totals.usage.runsWithoutCallCount).toBe(0);
+    const markdown = new HandoverMarkdownRenderer().render(counted, defaultTheme);
+    expect(markdown).toContain(
+      "5 Aufrufe meldeten keine Tokens (Zielsystem: 4, Judge: 1). Sie fehlen in den Spalten und im Token-Budget.",
+    );
+    expect(markdown).not.toContain("Tokens abgelehnter oder gescheiterter Judge-Aufrufe");
+  });
+
+  it("says nothing about unreported calls when every call reported tokens", () => {
+    const clean = buildHandoverModel({
+      reports: [
+        buildReportModel({
+          run: {
+            ...first,
+            usage: {
+              calls: 3,
+              targetTokens: { input: 10, output: 4 },
+              judgeTokens: { input: 900, output: 90 },
+              unreportedCalls: { target: 0, judge: 0 },
+            },
+          },
+          iterations: [],
+          verdicts: [],
+        }),
+      ],
+    });
+    const markdown = new HandoverMarkdownRenderer().render(clean, defaultTheme);
+    expect(markdown).not.toContain("meldeten keine Tokens");
   });
 
   it("states the limits of the check", () => {

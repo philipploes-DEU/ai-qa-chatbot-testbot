@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { makeCase, makeResponse } from "../../tests/helpers/cases.js";
+import { JudgeProviderConfigSchema } from "../domain/judge-config.js";
 import { FakeProvider } from "../providers/fake-provider.js";
 import { InvalidJsonError } from "../providers/json.js";
+import type { ModelProvider } from "../providers/model-provider.js";
+import { createJudge } from "./create-judge.js";
 import {
   ADDRESSES_JUDGE_CRITERION,
   buildDialogTask,
@@ -191,6 +194,56 @@ describe("Judge", () => {
     await expect(
       judge.judge(makeCase({ expected: { mustContain: ["x"] } }), makeResponse("x")),
     ).rejects.toThrow(/weder Rubrik noch Referenzantwort/);
+  });
+});
+
+describe("Judge output cap and usage (issue #125)", () => {
+  it("sends the cap with every kind of rating and nothing without it", async () => {
+    const provider = new FakeProvider([output(), output(), output()]);
+    const capped = new Judge(provider, JUDGE_PROMPT_V1, { maxOutputTokens: 800 });
+    expect(capped.maxOutputTokens).toBe(800);
+    await capped.judge(rubricCase, makeResponse("Mo bis Fr 9 bis 17 Uhr."));
+    await capped.judgeDialog(rubricCase, [{ role: "user", content: "Hallo" }]);
+    await new Judge(provider, JUDGE_PROMPT_V1).judge(rubricCase, makeResponse("x"));
+    expect(provider.calls.map((call) => call.maxTokens)).toEqual([800, 800, undefined]);
+  });
+
+  it("takes the cap from the judge block of aiqa.yaml", () => {
+    const config = JudgeProviderConfigSchema.parse({
+      baseUrl: "http://localhost:11434/v1",
+      model: "klein",
+      maxOutputTokens: 1200,
+    });
+    expect(createJudge(config).maxOutputTokens).toBe(1200);
+    const open = JudgeProviderConfigSchema.parse({
+      baseUrl: "http://localhost:11434/v1",
+      model: "klein",
+    });
+    expect(createJudge(open).maxOutputTokens).toBeUndefined();
+    expect(JudgeProviderConfigSchema.safeParse({ ...config, maxOutputTokens: 0 }).success).toBe(
+      false,
+    );
+  });
+
+  it("says how many of its calls reported no tokens", async () => {
+    const reporting = new Judge(new FakeProvider([output()]), JUDGE_PROMPT_V1);
+    const counted = await reporting.judge(rubricCase, makeResponse("x"));
+    expect(counted.unreportedCalls).toBe(0);
+
+    const silent: ModelProvider = {
+      name: "still",
+      model: "still",
+      generateJson: (request) =>
+        Promise.resolve({
+          value: request.schema.parse(JSON.parse(output())),
+          raw: output(),
+          latencyMs: 1,
+          attempts: 1,
+        }),
+    };
+    const outcome = await new Judge(silent, JUDGE_PROMPT_V1).judge(rubricCase, makeResponse("x"));
+    expect(outcome.tokens).toBeUndefined();
+    expect(outcome.unreportedCalls).toBe(1);
   });
 });
 

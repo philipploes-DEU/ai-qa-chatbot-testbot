@@ -45,6 +45,17 @@ describe("judgePair", () => {
     expect(provider.calls[1]?.prompt).toContain("<<<ANTWORT A\nneu\n");
   });
 
+  it("sends the output cap of the judge with both orders (issue #125)", async () => {
+    const provider = new FakeProvider([pick("B"), pick("A")], "richter");
+    await judgePair(
+      new Judge(provider, JUDGE_PROMPT_V1, { maxOutputTokens: 600 }),
+      testCase,
+      "alt",
+      "neu",
+    );
+    expect(provider.calls.map((call) => call.maxTokens)).toEqual([600, 600]);
+  });
+
   it("is undecided when the judge follows the position", async () => {
     // The judge always prefers A: base first, then head first.
     const provider = new FakeProvider([pick("A"), pick("A")]);

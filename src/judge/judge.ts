@@ -5,7 +5,7 @@ import { claimHits } from "../checks/must-not-claim.js";
 import type { Tokens, Turn } from "../domain/common.js";
 import type { RubricCriterion, TestCase } from "../domain/test-case.js";
 import type { CriterionVerdict, Verdict } from "../domain/verdict.js";
-import type { ModelProvider } from "../providers/model-provider.js";
+import { type ModelProvider, unreportedCallsOf } from "../providers/model-provider.js";
 import type { JudgePrompt } from "./prompts/prompt.js";
 import type { SourceDocument } from "./sources.js";
 
@@ -24,9 +24,16 @@ export type JudgeOutput = z.infer<typeof JudgeOutputSchema>;
 /** A verdict without run coordinates plus what the call cost. */
 export type JudgeVerdict = Omit<Verdict, "runId" | "caseId" | "index">;
 
+export interface JudgeOptions {
+  /** Upper bound for the output of one judge call (judge.maxOutputTokens, issue #125). */
+  maxOutputTokens?: number;
+}
+
 export interface JudgeOutcome {
   verdict: JudgeVerdict;
   tokens?: Tokens;
+  /** Calls to the model behind this verdict that reported no tokens (issue #125). */
+  unreportedCalls: number;
   latencyMs: number;
   attempts: number;
   /** The model's raw text, for records; never part of the verdict. */
@@ -198,10 +205,16 @@ export class Judge {
   constructor(
     private readonly provider: ModelProvider,
     private readonly prompt: JudgePrompt,
+    private readonly options: JudgeOptions = {},
   ) {}
 
   get model(): string {
     return this.provider.model;
+  }
+
+  /** The cap on the output of one call, for comparisons that build their own task. */
+  get maxOutputTokens(): number | undefined {
+    return this.options.maxOutputTokens;
   }
 
   /** The model behind the judge, for comparisons that build their own task (pairwise). */
@@ -282,38 +295,37 @@ export class Judge {
     );
   }
 
-  private async rate(
+  private rate(
     testCase: TestCase,
     rubric: readonly RubricCriterion[],
     answer: string,
     sources: readonly SourceDocument[],
   ): Promise<JudgeOutcome> {
+    return this.ask(
+      buildJudgeTask(testCase, rubric, answer, this.readsSources ? sources : []),
+      rubric,
+    );
+  }
+
+  /** The whole conversation of a dialog against the fixed dialog criteria. */
+  judgeDialog(testCase: TestCase, transcript: readonly Turn[]): Promise<JudgeOutcome> {
+    return this.ask(buildDialogTask(testCase, transcript), DIALOG_CRITERIA);
+  }
+
+  private async ask(task: string, rubric: readonly RubricCriterion[]): Promise<JudgeOutcome> {
     const result = await this.provider.generateJson({
       system: this.prompt.system,
-      prompt: buildJudgeTask(testCase, rubric, answer, this.readsSources ? sources : []),
+      prompt: task,
       schema: JudgeOutputSchema,
       schemaName: "Urteil",
+      ...(this.options.maxOutputTokens !== undefined
+        ? { maxTokens: this.options.maxOutputTokens }
+        : {}),
     });
     return {
       verdict: this.toVerdict(rubric, result.value),
       ...(result.tokens !== undefined ? { tokens: result.tokens } : {}),
-      latencyMs: result.latencyMs,
-      attempts: result.attempts,
-      raw: result.raw,
-    };
-  }
-
-  /** The whole conversation of a dialog against the fixed dialog criteria. */
-  async judgeDialog(testCase: TestCase, transcript: readonly Turn[]): Promise<JudgeOutcome> {
-    const result = await this.provider.generateJson({
-      system: this.prompt.system,
-      prompt: buildDialogTask(testCase, transcript),
-      schema: JudgeOutputSchema,
-      schemaName: "Urteil",
-    });
-    return {
-      verdict: this.toVerdict(DIALOG_CRITERIA, result.value),
-      ...(result.tokens !== undefined ? { tokens: result.tokens } : {}),
+      unreportedCalls: unreportedCallsOf(result),
       latencyMs: result.latencyMs,
       attempts: result.attempts,
       raw: result.raw,

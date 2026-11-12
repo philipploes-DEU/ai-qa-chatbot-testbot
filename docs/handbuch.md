@@ -60,7 +60,9 @@ für ein konkretes System gegen einen konkreten Satz von Testfällen.
 - Wiederholen und rechnen: jeder Fall läuft n-mal. AI QA berechnet Pass-Rate, Konfidenzintervall,
   Schwankung und die Wahrscheinlichkeit, dass mehrere Wiederholungen alle bestehen.
 - Kosten begrenzen: ein Plan hat ein Budget an Aufrufen und Tokens. Wird es erreicht, endet der
-  Lauf sauber und ist im Report als unvollständig gekennzeichnet.
+  Lauf sauber und ist im Report als unvollständig gekennzeichnet. Tokens gescheiterter Aufrufe
+  zählen mit, soweit sie gemeldet werden, und der Judge bekommt auf Wunsch eine Obergrenze je
+  Aufruf (`judge.maxOutputTokens`).
 - Berichten: ein Report je Lauf mit Zusammenfassung, Fehlerquote je Kategorie, Trend über die
   letzten Läufe, Tabelle je Fall, Fehlschlägen mit Begründung, Frage, Soll und Antwort je Fall
   und Hinweisen. Als Markdown für

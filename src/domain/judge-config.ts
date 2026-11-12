@@ -33,6 +33,11 @@ export const JudgeProviderConfigSchema = ModelProviderConfigSchema.extend({
   promptVersion: z.string().min(1).optional(),
   /** Upper bound for the source documents of one goldset in the judge prompt, in characters. */
   maxSourceChars: z.number().int().positive().optional(),
+  /**
+   * Upper bound for the output of one judge call, sent as max_tokens (issue #125). No bound
+   * when omitted. An answer cut off at the bound is a judge error, never a verdict.
+   */
+  maxOutputTokens: z.number().int().positive().optional(),
 });
 export type JudgeProviderConfig = z.infer<typeof JudgeProviderConfigSchema>;
 export type JudgeProviderConfigInput = z.input<typeof JudgeProviderConfigSchema>;

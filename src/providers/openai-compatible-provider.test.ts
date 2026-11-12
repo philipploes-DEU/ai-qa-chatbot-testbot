@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { InvalidJsonError, ModelRefusalError } from "./json.js";
 import { OpenAiCompatibleProvider } from "./openai-compatible-provider.js";
+import { usageOfError } from "./usage.js";
 
 const Verdict = z.strictObject({ pass: z.boolean(), reason: z.string() });
 
@@ -14,8 +15,11 @@ interface Captured {
   body: { messages: { role: string; content: string }[] } & Record<string, unknown>;
 }
 
-/** A scripted text, or a whole choice for answers without plain content (issue #83). */
-type Scripted = string | { choice: Record<string, unknown> };
+/**
+ * A scripted text, a whole choice for answers without plain content (issue #83), optionally
+ * without usage numbers, or an HTTP status that fails the call (issue #125).
+ */
+type Scripted = string | { choice: Record<string, unknown>; usage?: false } | { status: number };
 
 /** Answers the scripted texts in order, with usage numbers, and records the requests. */
 function startModel(): Promise<{
@@ -35,13 +39,20 @@ function startModel(): Promise<{
         body: JSON.parse(Buffer.concat(chunks).toString("utf8")) as Captured["body"],
       });
       const next = script.shift() ?? "{}";
+      if (typeof next !== "string" && "status" in next) {
+        response.writeHead(next.status, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: { message: "abgelehnt" } }));
+        return;
+      }
       const choice =
         typeof next === "string" ? { message: { role: "assistant", content: next } } : next.choice;
       response.writeHead(200, { "content-type": "application/json" });
       response.end(
         JSON.stringify({
           choices: [choice],
-          usage: { prompt_tokens: 100, completion_tokens: 10 },
+          ...(typeof next !== "string" && next.usage === false
+            ? {}
+            : { usage: { prompt_tokens: 100, completion_tokens: 10 } }),
         }),
       );
     });
@@ -262,6 +273,92 @@ describe("OpenAiCompatibleProvider", () => {
         .catch((caught: unknown) => caught);
       expect(error).toBeInstanceOf(InvalidJsonError);
       expect(error).not.toBeInstanceOf(ModelRefusalError);
+    });
+  });
+
+  describe("what failed calls cost (issue #125)", () => {
+    const provider = (): OpenAiCompatibleProvider =>
+      new OpenAiCompatibleProvider({
+        baseUrl: model.url,
+        model: "klein",
+        requestsPerMinute: 100000,
+      });
+    const failure = (): Promise<unknown> =>
+      provider()
+        .generateJson({ prompt: "x", schema: Verdict })
+        .catch((caught: unknown) => caught);
+
+    it("treats an answer cut off at the token limit as an error, without a repair", async () => {
+      model.script.push({
+        choice: {
+          message: { role: "assistant", content: '{"pass": true, "rea' },
+          finish_reason: "length",
+        },
+      });
+      const error = await failure();
+      expect(error).toBeInstanceOf(InvalidJsonError);
+      expect((error as Error).message).toContain("Token-Grenze");
+      expect(model.requests).toHaveLength(1);
+      expect(usageOfError(error)).toEqual({
+        tokens: { input: 100, output: 10 },
+        unreportedCalls: 0,
+      });
+    });
+
+    it("rejects a complete answer at the token limit as well", async () => {
+      model.script.push({
+        choice: {
+          message: { role: "assistant", content: '{"pass": true, "reason": "knapp"}' },
+          finish_reason: "length",
+        },
+      });
+      expect(await failure()).toBeInstanceOf(InvalidJsonError);
+    });
+
+    it("reports the tokens of every attempt when the repair fails", async () => {
+      model.script.push("kein json", "immer noch nicht");
+      const error = await failure();
+      expect(error).toBeInstanceOf(InvalidJsonError);
+      expect(usageOfError(error)).toEqual({
+        tokens: { input: 200, output: 20 },
+        unreportedCalls: 0,
+      });
+    });
+
+    it("reports the tokens of a refusal", async () => {
+      model.script.push("");
+      const error = await failure();
+      expect(error).toBeInstanceOf(ModelRefusalError);
+      expect(usageOfError(error)).toEqual({
+        tokens: { input: 100, output: 10 },
+        unreportedCalls: 0,
+      });
+    });
+
+    it("keeps the tokens of the first attempt when the repair call fails on the wire", async () => {
+      model.script.push("kein json", { status: 400 });
+      const error = await failure();
+      expect((error as Error).message).toContain("400");
+      expect(usageOfError(error)).toEqual({
+        tokens: { input: 100, output: 10 },
+        unreportedCalls: 1,
+      });
+    });
+
+    it("counts an answer without usage numbers as a call the budget does not see", async () => {
+      model.script.push({
+        choice: { message: { role: "assistant", content: '{"pass": true, "reason": "ok"}' } },
+        usage: false,
+      });
+      const result = await provider().generateJson({ prompt: "x", schema: Verdict });
+      expect(result.tokens).toBeUndefined();
+      expect(result.unreportedCalls).toBe(1);
+    });
+
+    it("reports no unseen call when every attempt carried usage numbers", async () => {
+      model.script.push('{"pass": "ja"}', '{"pass": true, "reason": "jetzt"}');
+      const result = await provider().generateJson({ prompt: "x", schema: Verdict });
+      expect(result.unreportedCalls).toBe(0);
     });
   });
 });

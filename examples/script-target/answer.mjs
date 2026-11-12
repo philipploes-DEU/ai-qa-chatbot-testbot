@@ -1,6 +1,7 @@
 // Example target for the script adapter (issue #25): reads { turns, session, vars } as JSON
 // from stdin and answers with { content, tokens } as JSON on stdout. No model, no network.
-// Deliberate behaviours for tests: "fehler" exits with code 2, "kaputt" prints no JSON,
+// Deliberate behaviours for tests: "fehler" exits with code 2, "fehler mit tokens" does the
+// same after reporting the tokens it used on stdout (issue #125), "kaputt" prints no JSON,
 // "langsam" answers after two seconds, "variablen" answers with the variables of the case as
 // it got them on stdin and in the environment (issue #119).
 import { env, stdin, stdout, stderr, exit } from "node:process";
@@ -29,6 +30,11 @@ stdin.on("end", async () => {
   const request = JSON.parse(input);
   const last = [...request.turns].reverse().find((turn) => turn.role === "user");
   const message = (last?.content ?? "").trim();
+  if (message === "fehler mit tokens") {
+    stdout.write(JSON.stringify({ tokens: { input: 3, output: 0 } }));
+    stderr.write("Absichtlicher Fehler des Beispielskripts\n");
+    exit(2);
+  }
   if (message === "fehler") {
     stderr.write("Absichtlicher Fehler des Beispielskripts\n");
     exit(2);

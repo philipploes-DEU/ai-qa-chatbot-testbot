@@ -3,6 +3,20 @@
 Alle nennenswerten Änderungen an AI QA. Erzeugt aus Conventional Commits mit git-cliff.
 Issue-Nummern beziehen sich auf das private Entwicklungs-Repository (ADR 0023).
 
+## [0.13.0] vom 12.11.2026
+
+### Neue Funktionen
+
+- **runner:** Cap the judge output and count tokens of failed calls (#125) (#127)
+
+### Fehlerbehebungen
+
+- **deps:** Update zod and fast-uri, drop the lockfile of the spike (#129) (#130)
+
+### Wartung
+
+- **repo:** Reject emoji in commit messages and pull request texts (#126) (#128)
+
 ## [0.12.0] vom 12.11.2026
 
 ### Neue Funktionen

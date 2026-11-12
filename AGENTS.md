@@ -33,7 +33,9 @@ pnpm aiqa -- <befehl>
   of Origin), zum Beispiel `feat(runner): write iterations as JSONL (#12)`.
 - Architekturentscheidungen als ADR in `docs/adr`. Ändert sich Sichtbares, README und Handbuch
   mitziehen.
-- Die Hooks (Prettier, ESLint, gitleaks vor dem Commit, Typecheck und Tests vor dem Push) nie mit
-  `--no-verify` umgehen.
+- Die Hooks (Prettier, ESLint, gitleaks vor dem Commit, Emoji-Prüfung der Commit-Nachricht,
+  Typecheck und Tests vor dem Push) nie mit `--no-verify` umgehen.
+- Commit-Nachrichten, PR-Titel und PR-Texte ohne Emojis. Eine Attributionszeile eines Werkzeugs
+  steht ohne das Zeichen davor. Der Workflow `pr-text` prüft das.
 
 Ablauf für Beiträge und das öffentliche Release-Repository: [CONTRIBUTING.md](CONTRIBUTING.md).

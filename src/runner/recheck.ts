@@ -240,6 +240,7 @@ export async function recheckRun(options: RecheckOptions): Promise<RecheckSummar
       calls: 0,
       targetTokens: { input: 0, output: 0 },
       judgeTokens: { input: 0, output: 0 },
+      unreportedCalls: { target: 0, judge: 0 },
     },
   });
   return summary;

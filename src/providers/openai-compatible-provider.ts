@@ -6,6 +6,7 @@ import { completionsUrl } from "../adapters/openai-compatible.js";
 import { RateLimitSchema, TimeoutsSchema } from "../domain/target-config.js";
 import { InvalidJsonError, ModelRefusalError, parseJsonWith } from "./json.js";
 import type { JsonRequest, JsonResult, ModelProvider } from "./model-provider.js";
+import { withUsage } from "./usage.js";
 
 export interface OpenAiCompatibleProviderConfig {
   /** Base url of the chat completions API, for example http://localhost:11434/v1. */
@@ -85,7 +86,8 @@ function refusalOf(completion: Completion, text: string | undefined): string | u
  * ModelProvider over the chat completions format: Ollama, OpenAI, gateways and the Anthropic
  * compatibility layer. JSON comes from an instruction with the JSON schema, is validated with
  * Zod and repaired once by default. Auth, rate limit, backoff and timeouts reuse the shared
- * client of the adapters.
+ * client of the adapters. An answer cut off at the token limit is an error without repair, and
+ * every failure carries the tokens its calls reported (issue #125).
  */
 export class OpenAiCompatibleProvider implements ModelProvider {
   readonly name = "openai-compatible";
@@ -129,72 +131,86 @@ export class OpenAiCompatibleProvider implements ModelProvider {
     const repairs = this.config.maxRepairs ?? 1;
     const started = performance.now();
     let tokens = { input: 0, output: 0 };
-    let sawUsage = false;
+    // Calls sent and calls whose answer carried usage numbers. The difference is what a token
+    // budget cannot see (issue #125).
+    let calls = 0;
+    let reported = 0;
     let lastRaw = "";
     let lastReason = "";
 
-    for (let attempt = 1; attempt <= repairs + 1; attempt++) {
-      const response = await this.client.request(this.url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          model: this.model,
-          ...(this.config.temperature !== undefined
-            ? { temperature: this.config.temperature }
-            : {}),
-          ...(request.maxTokens !== undefined ? { max_tokens: request.maxTokens } : {}),
-          ...(this.config.responseFormat === "json_object"
-            ? { response_format: { type: "json_object" } }
-            : {}),
-          stream: false,
-          messages,
-        }),
-      });
-      const completion = response.json() as Completion;
-      if (completion.choices?.[0]?.message === undefined) {
-        throw new InvalidJsonError("keine Antwort unter choices[0].message", response.text);
-      }
-      const raw = textOf(completion);
-      const refusal = refusalOf(completion, raw);
-      if (refusal !== undefined) throw new ModelRefusalError(refusal);
-      if (raw === undefined || raw.trim().length === 0) {
-        throw new InvalidJsonError(
-          "leere Antwort, Token-Grenze erreicht (finish_reason length)",
-          "",
+    try {
+      for (let attempt = 1; attempt <= repairs + 1; attempt++) {
+        calls++;
+        const response = await this.client.request(this.url, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            model: this.model,
+            ...(this.config.temperature !== undefined
+              ? { temperature: this.config.temperature }
+              : {}),
+            ...(request.maxTokens !== undefined ? { max_tokens: request.maxTokens } : {}),
+            ...(this.config.responseFormat === "json_object"
+              ? { response_format: { type: "json_object" } }
+              : {}),
+            stream: false,
+            messages,
+          }),
+        });
+        const completion = response.json() as Completion;
+        // Counted first: an answer that is refused, cut off or invalid was paid for as well.
+        if (completion.usage !== undefined) {
+          reported++;
+          tokens = {
+            input: tokens.input + (completion.usage.prompt_tokens ?? 0),
+            output: tokens.output + (completion.usage.completion_tokens ?? 0),
+          };
+        }
+        if (completion.choices?.[0]?.message === undefined) {
+          throw new InvalidJsonError("keine Antwort unter choices[0].message", response.text);
+        }
+        const raw = textOf(completion) ?? "";
+        const refusal = refusalOf(completion, raw);
+        if (refusal !== undefined) throw new ModelRefusalError(refusal);
+        // Cut off at the token limit: a repair would be cut off again, and a text that happens
+        // to parse is still not the whole answer.
+        if (completion.choices[0].finish_reason === "length") {
+          throw new InvalidJsonError(
+            raw.trim().length === 0
+              ? "leere Antwort, Token-Grenze erreicht (finish_reason length)"
+              : "Antwort an der Token-Grenze abgeschnitten (finish_reason length)",
+            raw,
+          );
+        }
+        const parsed = parseJsonWith(request.schema, raw);
+        if (parsed.ok) {
+          return {
+            value: parsed.value,
+            raw,
+            ...(reported > 0 ? { tokens } : {}),
+            unreportedCalls: calls - reported,
+            latencyMs: performance.now() - started,
+            attempts: attempt,
+          };
+        }
+        lastRaw = raw;
+        lastReason = parsed.reason;
+        messages.push(
+          { role: "assistant", content: raw },
+          {
+            role: "user",
+            content:
+              `Die Antwort war ungültig: ${parsed.reason}. ` +
+              "Antworte erneut, nur mit dem korrigierten JSON-Dokument.",
+          },
         );
       }
-      if (completion.usage !== undefined) {
-        sawUsage = true;
-        tokens = {
-          input: tokens.input + (completion.usage.prompt_tokens ?? 0),
-          output: tokens.output + (completion.usage.completion_tokens ?? 0),
-        };
-      }
-      const parsed = parseJsonWith(request.schema, raw);
-      if (parsed.ok) {
-        return {
-          value: parsed.value,
-          raw,
-          ...(sawUsage ? { tokens } : {}),
-          latencyMs: performance.now() - started,
-          attempts: attempt,
-        };
-      }
-      lastRaw = raw;
-      lastReason = parsed.reason;
-      messages.push(
-        { role: "assistant", content: raw },
-        {
-          role: "user",
-          content:
-            `Die Antwort war ungültig: ${parsed.reason}. ` +
-            "Antworte erneut, nur mit dem korrigierten JSON-Dokument.",
-        },
+      throw new InvalidJsonError(
+        `${lastReason} nach ${String(repairs + 1)} Versuchen`,
+        excerpt(lastRaw),
       );
+    } catch (error) {
+      throw withUsage(error, { tokens, unreportedCalls: calls - reported });
     }
-    throw new InvalidJsonError(
-      `${lastReason} nach ${String(repairs + 1)} Versuchen`,
-      excerpt(lastRaw),
-    );
   }
 }

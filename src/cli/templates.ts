@@ -82,6 +82,7 @@ export function renderWorkspaceConfig(targetName: string): string {
     "#   model: qwen2.5:7b",
     "#   apiKey: ${AIQA_JUDGE_API_KEY}        # weglassen, wenn die API keinen Schlüssel braucht",
     "#   temperature: 0                       # weglassen bei aktuellen Claude-Modellen",
+    "#   maxOutputTokens: 4000                # optional, Obergrenze der Ausgabe je Judge-Aufruf",
     "",
     "# Gates für regelmäßige Läufe (aiqa gate): reißt eines, scheitert der Job.",
     "# gates:",

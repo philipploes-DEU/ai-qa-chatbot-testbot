@@ -356,6 +356,12 @@ export async function executeRun(
   io.writeOut(
     `Verbraucht: ${String(summary.calls)} Aufrufe, ${String(summary.tokens.input + summary.tokens.output)} Tokens (${String(summary.tokens.input)} Eingabe, ${String(summary.tokens.output)} Ausgabe).`,
   );
+  const unreported = summary.unreportedCalls.target + summary.unreportedCalls.judge;
+  if (unreported > 0) {
+    io.writeOut(
+      `Ohne Tokenmeldung: ${String(unreported)} ${unreported === 1 ? "Aufruf" : "Aufrufe"} (Zielsystem: ${String(summary.unreportedCalls.target)}, Judge: ${String(summary.unreportedCalls.judge)}). Ihre Tokens fehlen in der Summe und im Token-Budget.`,
+    );
+  }
   io.writeOut(`Ergebnisse: ${toPosix(path.relative(io.cwd, store.runDir(summary.runId)))}/`);
   io.writeOut(`Report erzeugen mit: aiqa report --run ${summary.runId}`);
   return summary;

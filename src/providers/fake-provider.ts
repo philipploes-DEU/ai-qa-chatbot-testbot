@@ -5,6 +5,7 @@ export interface FakeCall {
   system?: string;
   prompt: string;
   schemaName?: string;
+  maxTokens?: number;
 }
 
 /**
@@ -29,6 +30,7 @@ export class FakeProvider implements ModelProvider {
       ...(request.system !== undefined ? { system: request.system } : {}),
       prompt: request.prompt,
       ...(request.schemaName !== undefined ? { schemaName: request.schemaName } : {}),
+      ...(request.maxTokens !== undefined ? { maxTokens: request.maxTokens } : {}),
     });
     const raw = this.answers.shift();
     if (raw === undefined) {

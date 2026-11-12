@@ -86,6 +86,7 @@ export async function judgePair(
       prompt: buildPairTask(testCase, criteria, answerA, answerB),
       schema: PairOutputSchema,
       schemaName: "Paarvergleich",
+      ...(judge.maxOutputTokens !== undefined ? { maxTokens: judge.maxOutputTokens } : {}),
     });
     tokens = addTokens(tokens, result.tokens);
     const { winner, reason, confidence, addressesJudge } = result.value;

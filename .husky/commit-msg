@@ -1,0 +1,2 @@
+set -e
+node scripts/check-no-emoji.mjs "$1"

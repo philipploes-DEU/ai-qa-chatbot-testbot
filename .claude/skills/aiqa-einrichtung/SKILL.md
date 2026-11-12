@@ -141,6 +141,10 @@ Ohne Judge urteilen nur deterministische Checks. Für Rubriken braucht es ein zw
 - Anbieter: Chat-Completions-API mit Schlüssel als `apiKey: ${AIQA_JUDGE_API_KEY}`. Für Claude
   über die Anthropic-Kompatibilitätsschicht `baseUrl: https://api.anthropic.com/v1`, ohne
   `temperature`.
+- Kostet der Judge Geld, schlage `maxOutputTokens` im `judge`-Block vor. Der Wert begrenzt die
+  Ausgabe je Judge-Aufruf. Eine abgeschnittene Antwort ist ein Judge-Fehler, kein Urteil. Bei
+  Modellen, die vor der Antwort nachdenken, nicht knapp ansetzen und nach dem ersten Lauf die
+  Judge-Fehler prüfen.
 - Judge und Zielsystem müssen verschiedene Modelle sein. `aiqa validate` prüft das.
 - Hat das Zielsystem eine Wissensbasis oder Dokumente als Text, trage sie im Goldset unter
   `sources` ein (Pfade relativ zur Goldset-Datei). Der Judge prüft Zusatzangaben dann dagegen.

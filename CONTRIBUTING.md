@@ -51,7 +51,11 @@ goldset. Repo-weite Änderungen kommen ohne Scope aus.
 Vor jedem Commit laufen lokal die Hooks:
 
 - Pre-Commit: Prettier und ESLint auf den gestagten Dateien, dann gitleaks als Secret-Scan.
+- Commit-Msg: lehnt Emojis in der Commit-Nachricht ab (`scripts/check-no-emoji.mjs`).
 - Pre-Push: `pnpm typecheck` und `pnpm test`.
+
+Titel und Text eines Pull Requests prüft der Workflow `pr-text` auf Emojis, auch nach einer
+Änderung des Texts. Werkzeuge hängen gern eine Zeile mit Emoji an, entferne das Zeichen.
 
 Umgehe die Hooks nicht mit `--no-verify`. Schlägt gitleaks an, prüfe den Fund und entferne das
 Geheimnis, bevor du erneut committest.
@@ -68,7 +72,8 @@ pnpm format:check
 
 - Code, Bezeichner und Commits auf Englisch. Dokumentation, Issues, Goldsets und Reports auf
   Deutsch.
-- Keine Emojis, keine Ausrufezeichen, keine Gedankenstriche in Doku, Commits und Issues.
+- Keine Emojis, keine Ausrufezeichen, keine Gedankenstriche in Doku, Commits, Issues und
+  PR-Texten.
 - Keine Secrets, keine Kundendaten, keine echten System-Prompts. Beispiel-Goldsets nur mit
   erfundenen Firmen, Personen und Inhalten.
 - Tests machen keine Netzwerkaufrufe. Agenten und Provider werden mit Fixtures getestet.

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { MemoryResultStore } from "../../tests/helpers/memory-store.js";
 import { DummyAdapter } from "../adapters/dummy.js";
-import { FatalTargetError, HttpStatusError } from "../adapters/errors.js";
+import { FailedCallError, FatalTargetError, HttpStatusError } from "../adapters/errors.js";
 import type { SendOptions, TargetAdapter, TargetResponse } from "../adapters/target.js";
 import { createDefaultChecks } from "../checks/run-checks.js";
 import type { Turn } from "../domain/common.js";
@@ -13,7 +13,8 @@ import { Judge } from "../judge/judge.js";
 import { JUDGE_PROMPT_V1 } from "../judge/prompts/v1.js";
 import { JUDGE_PROMPT_V2 } from "../judge/prompts/v2.js";
 import { FakeProvider } from "../providers/fake-provider.js";
-import { ModelRefusalError } from "../providers/json.js";
+import { InvalidJsonError, ModelRefusalError } from "../providers/json.js";
+import { withUsage } from "../providers/usage.js";
 import { callsPerIteration, generateRunId, runPlan } from "./run-plan.js";
 
 const goldset = GoldsetSchema.parse({
@@ -658,6 +659,146 @@ describe("runPlan budget", () => {
     expect(summary.judgedIterations).toBe(1);
     expect(summary.tokens.input + summary.tokens.output).toBeGreaterThan(120);
     expect(summary.tokens.input).toBeGreaterThan(40);
+  });
+});
+
+describe("runPlan counts what failed calls cost (issue #125)", () => {
+  const rubricPlan = (iterations: number, budget: Record<string, number>) =>
+    PlanSchema.parse({ ...plan, caseRefs: [{ caseId: "faq-rubrik", iterations }], budget });
+  const counting: TargetAdapter = {
+    name: "zaehler",
+    send: () =>
+      Promise.resolve({
+        content: "Montag bis Freitag von 9 bis 17 Uhr.",
+        latencyMs: 1,
+        tokens: { input: 40, output: 10 },
+      }),
+  };
+
+  it("adds the tokens of a failed target call to the budget and the iteration", async () => {
+    const failing: TargetAdapter = {
+      name: "scheitert",
+      send: () => Promise.reject(new FailedCallError("exit 1: kaputt", { input: 30, output: 5 })),
+    };
+    const { store, now, checks } = setup(failing);
+    const summary = await runPlan({
+      plan: rubricPlan(3, { maxCalls: 3, maxTokens: 60 }),
+      goldsets: [goldset],
+      target,
+      adapter: failing,
+      checks,
+      store,
+      now,
+      runId: "run-failed-tokens",
+    });
+    // 35 tokens per failed call: the third iteration no longer starts.
+    expect(summary.status).toBe("aborted");
+    expect(summary.abortReason).toBe("Budget von 60 Tokens überschritten (70 verbraucht)");
+    expect(summary.tokens).toEqual({ input: 60, output: 10 });
+    expect(store.iterations.map((iteration) => iteration.tokens)).toEqual([
+      { input: 30, output: 5 },
+      { input: 30, output: 5 },
+    ]);
+    expect(store.iterations[0]?.error).toBe("exit 1: kaputt");
+    expect(summary.unreportedCalls).toEqual({ target: 0, judge: 0 });
+    expect(store.runs.get("run-failed-tokens")?.usage).toEqual({
+      calls: 2,
+      targetTokens: { input: 60, output: 10 },
+      judgeTokens: { input: 0, output: 0 },
+      unreportedCalls: { target: 0, judge: 0 },
+    });
+  });
+
+  it("counts target calls without token numbers, failed or not", async () => {
+    const answers: (TargetResponse | Error)[] = [
+      { content: "Montag bis Freitag von 9 bis 17 Uhr.", latencyMs: 1 },
+      new Error("exit 1"),
+      {
+        content: "Montag bis Freitag von 9 bis 17 Uhr.",
+        latencyMs: 1,
+        tokens: { input: 4, output: 6 },
+      },
+    ];
+    const mixed: TargetAdapter = {
+      name: "gemischt",
+      send: () => {
+        const next = answers.shift();
+        return next instanceof Error || next === undefined
+          ? Promise.reject(next ?? new Error("leer"))
+          : Promise.resolve(next);
+      },
+    };
+    const { store, now, checks } = setup(mixed);
+    const summary = await runPlan({
+      plan: PlanSchema.parse({ ...plan, caseRefs: [{ caseId: "faq-001", iterations: 3 }] }),
+      goldsets: [goldset],
+      target,
+      adapter: mixed,
+      checks,
+      store,
+      now,
+      runId: "run-unreported",
+    });
+    expect(summary.calls).toBe(3);
+    expect(summary.unreportedCalls).toEqual({ target: 2, judge: 0 });
+    expect(store.runs.get("run-unreported")?.usage?.unreportedCalls).toEqual({
+      target: 2,
+      judge: 0,
+    });
+  });
+
+  it("adds the tokens of a failed judge call to the budget and the judge tokens", async () => {
+    const failed = withUsage(new InvalidJsonError("kein JSON nach 2 Versuchen", "x"), {
+      tokens: { input: 70, output: 30 },
+      unreportedCalls: 0,
+    });
+    const { store, now, checks } = setup(counting);
+    const summary = await runPlan({
+      plan: rubricPlan(3, { maxCalls: 3, maxTokens: 120 }),
+      goldsets: [goldset],
+      target,
+      adapter: counting,
+      checks,
+      judge: new Judge(new FakeProvider([failed, failed, failed]), JUDGE_PROMPT_V1),
+      store,
+      now,
+      runId: "run-judge-failed-tokens",
+    });
+    // 50 target tokens plus 100 of the failed judge call pass 120 after the first iteration.
+    expect(summary.status).toBe("aborted");
+    expect(summary.iterations).toBe(1);
+    expect(summary.judgeErrors).toBe(1);
+    expect(summary.tokens).toEqual({ input: 110, output: 40 });
+    expect(store.runs.get("run-judge-failed-tokens")?.usage).toEqual({
+      calls: 1,
+      targetTokens: { input: 40, output: 10 },
+      judgeTokens: { input: 70, output: 30 },
+      unreportedCalls: { target: 0, judge: 0 },
+    });
+  });
+
+  it("counts a failed judge call without token numbers", async () => {
+    const { store, now, checks } = setup(counting);
+    const summary = await runPlan({
+      plan: rubricPlan(2, { maxCalls: 2 }),
+      goldsets: [goldset],
+      target,
+      adapter: counting,
+      checks,
+      judge: new Judge(
+        new FakeProvider([new ModelRefusalError("leere Antwort"), judgeAnswer(true)]),
+        JUDGE_PROMPT_V1,
+      ),
+      store,
+      now,
+      runId: "run-judge-unreported",
+    });
+    expect(summary.judgeRefusals).toBe(1);
+    expect(summary.unreportedCalls).toEqual({ target: 0, judge: 1 });
+    expect(store.runs.get("run-judge-unreported")?.usage?.unreportedCalls).toEqual({
+      target: 0,
+      judge: 1,
+    });
   });
 });
 

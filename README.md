@@ -6,16 +6,17 @@ bewertet die nicht-deterministischen Antworten mit LLM-Judges nach Rubrik, ergä
 deterministische Checks, sichert Fehlerquoten über mehrere Iterationen statistisch ab und erzeugt
 Reports.
 
-Status: Version 0.12.0. Adapter für HTTP mit JSON und gestreamten Antworten (NDJSON, Server-Sent
+Status: Version 0.13.0. Adapter für HTTP mit JSON und gestreamten Antworten (NDJSON, Server-Sent
 Events), OpenAI-kompatible Schnittstellen, Browser und lokale Kommandos, Login mit kurzlebigen
 Tokens, Einrichtung aus einem cURL-Aufruf, Variablen je Fall, Platzhalter mit Werten aus
 Datenquellen, erwarteter HTTP-Status, Bedingungen auf JSON-Pfade mit eigener Pass-Rate,
 Folgeaufrufe im Dialog, Judge mit Kalibrierung und Quelldokumenten, der Ablehnungen des
-Judge-Modells erkennt, 43 OWASP-Testmuster mit Ködern, Vergleich und Gates, Nachrechnen der Checks
-auf gespeicherten Antworten, Markdown- und HTML-Report mit bestätigten und verworfenen Befunden
-sowie Frage, Soll und Antwort je Fall, Übergabe-Report über mehrere Läufe, sauberer Abbruch am
-Tageslimit des Zielsystems, Planungs- und Analyseagent, promptfoo-Import, JUnit-XML für GitHub,
-eine lokale Oberfläche und ein Einrichtungs-Skill für Claude Code. Die Releases erscheinen
+Judge-Modells erkennt, mit Obergrenze für die Ausgabe je Aufruf, ein Token-Budget, das auch
+gescheiterte Aufrufe zählt, 43 OWASP-Testmuster mit Ködern, Vergleich und Gates, Nachrechnen der
+Checks auf gespeicherten Antworten, Markdown- und HTML-Report mit bestätigten und verworfenen
+Befunden sowie Frage, Soll und Antwort je Fall, Übergabe-Report über mehrere Läufe, sauberer
+Abbruch am Tageslimit des Zielsystems, Planungs- und Analyseagent, promptfoo-Import, JUnit-XML für
+GitHub, eine lokale Oberfläche und ein Einrichtungs-Skill für Claude Code. Die Releases erscheinen
 öffentlich unter https://github.com/philipploes-DEU/ai-qa-chatbot-testbot, entwickelt wird in einem
 privaten Repository ([ADR 0023](docs/adr/0023-oeffentliches-release-repository.md)).
 
@@ -450,6 +451,8 @@ Das Kommando bekommt auf stdin ein JSON mit `turns` (der Verlauf als Liste aus `
 `content`) und, in Dialogen, `session`, und antwortet auf stdout mit JSON: `content` mit dem
 Antworttext, optional `tokens` mit `input` und `output`. Ein Exit-Code ungleich null zählt als
 Fehler der Iteration, stderr landet im Fehlertext, `timeouts.requestMs` beendet das Kommando.
+Hat das Kommando vor dem Fehler Tokens verbraucht, darf es sie trotzdem als JSON mit `tokens`
+auf stdout melden. Sie zählen dann ins Budget.
 Das Kommando läuft im Arbeitsbereich. Ein Beispiel ohne Netzwerk liegt unter
 `examples/script-target/answer.mjs`:
 
@@ -594,6 +597,7 @@ judge:
   model: qwen2.5:7b
   apiKey: ${AIQA_JUDGE_API_KEY} # weglassen, wenn die API keinen Schlüssel braucht
   temperature: 0 # weglassen bei aktuellen Claude-Modellen, die lehnen Sampling-Parameter ab
+  maxOutputTokens: 4000 # optional, Obergrenze der Ausgabe je Judge-Aufruf
 ```
 
 So arbeitet der Judge:
@@ -609,6 +613,11 @@ So arbeitet der Judge:
 - Das Urteil ist JSON gegen ein Schema. Antwortet das Modell ungültig, bekommt es die Begründung
   und darf einmal korrigieren. Scheitert auch das, bleibt die Iteration ohne Judge-Urteil, der
   Fehler erscheint im Lauf, nicht als Fehlschlag des Zielsystems.
+- `judge.maxOutputTokens` begrenzt die Ausgabe je Judge-Aufruf, gesendet als `max_tokens`. Ohne
+  Angabe gibt es keine Grenze. Eine an der Grenze abgeschnittene Antwort ist ein Judge-Fehler
+  ohne Korrektur, nie ein Urteil. Bei Modellen, die vor der Antwort nachdenken, legt der
+  Anbieter fest, ob das Nachdenken unter die Grenze fällt. Setze den Wert dort nicht knapp und
+  prüfe nach dem ersten Lauf die Zahl der Judge-Fehler.
 - Lehnt das Modell die Bewertung ab, gibt es keine Korrektur. Als Ablehnung gelten ein
   Ablehnungstext (`message.refusal`), ein Abbruch mit `finish_reason` `content_filter` oder
   `refusal` und eine leere Antwort. Lauf und CLI melden "Judge lehnt ab" mit Grund und zählen
@@ -902,7 +911,13 @@ Fünf Iterationen zeigen grobe Ausreißer, zwanzig oder mehr machen das Konfiden
 aussagekräftig.
 
 Das Budget ist eine harte Grenze. `maxCalls` zählt die Aufrufe an das Zielsystem, `maxTokens`
-die Tokens von Zielsystem und Judge zusammen, soweit die Schnittstellen sie melden. Vor dem Lauf
+die Tokens von Zielsystem und Judge zusammen, soweit die Schnittstellen sie melden. Dazu gehören
+die Tokens gescheiterter Aufrufe: die eines Judge-Aufrufs, der abgelehnt, abgeschnitten oder
+nach der Korrektur ungültig war, und die eines Kommandos des Adapters `script`, das sie vor
+seinem Fehler meldet. Geschätzt wird nichts. Aufrufe ohne Tokenmeldung zählt AI QA getrennt nach
+Zielsystem und Judge und nennt sie am Ende des Laufs, weil das Token-Budget sie nicht sieht. Die
+Prüfung läuft vor jeder Iteration, die Iteration über der Grenze läuft also noch zu Ende. Den
+einzelnen Judge-Aufruf begrenzt `judge.maxOutputTokens`. Vor dem Lauf
 zeigt `aiqa run` Budget, erwartete Aufrufe und mögliche Judge-Aufrufe an. Überschreitet der Lauf
 eine Grenze, endet er sauber: die bis dahin geschriebenen Iterationen und Urteile bleiben gültig,
 der Lauf trägt `status: aborted` mit dem Grund, der Report ist als unvollständig gekennzeichnet
@@ -1082,6 +1097,8 @@ Zielsysteme lehnt der Befehl ab, JUnit gibt es nur für einen Lauf. Inhalt:
   Entwürfe und die Hinweise der Läufe.
 - Aufwand je Lauf: Aufrufe des Zielsystems und Tokens von Zielsystem und Judge. Läufe ab 0.8
   schreiben sie beim Abschluss als `usage` nach `run.json`, ältere zeigen "nicht erfasst".
+  Aufrufe ohne Tokenmeldung stehen als `usage.unreportedCalls` daneben. Der Report nennt ihre
+  Zahl, weil ihre Tokens in den Spalten und im Token-Budget fehlen.
 
 `outOfScope` steht in Plan oder Goldset, ein Satz je Bereich, und landet beim Lauf in
 `run.json`:
@@ -1289,7 +1306,7 @@ die Benachrichtigung von GitHub.
 
 ## 10. Status, Lizenz, Mitmachen, Kontakt
 
-- Status: Version 0.12.0 vom 12.11.2026, Änderungen in [CHANGELOG.md](CHANGELOG.md). Die
+- Status: Version 0.13.0 vom 12.11.2026, Änderungen in [CHANGELOG.md](CHANGELOG.md). Die
   Meilensteine Foundation, Dialoge und Agenten sowie MVP mit dem ersten echten Zielsystem sind
   abgeschlossen. Erledigt ist, was in einem Release enthalten ist.
 - Herausgeber: Philipp Löschner, Wirkmittel AI, https://wirkmittel.ai, E-Mail

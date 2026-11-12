@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { makeCase } from "../../tests/helpers/cases.js";
 import type { Round } from "../domain/iteration.js";
 import { FakeProvider } from "../providers/fake-provider.js";
+import { InvalidJsonError } from "../providers/json.js";
+import { usageOfError, withUsage } from "../providers/usage.js";
 import { judgeIteration } from "./judge-iteration.js";
 import { DIALOG_CRITERIA, Judge } from "./judge.js";
 import { JUDGE_PROMPT_V1 } from "./prompts/v1.js";
@@ -100,6 +102,47 @@ describe("judgeIteration for dialogs", () => {
     expect(rated.verdicts.map((verdict) => verdict.round)).toEqual([2, undefined]);
     expect(provider.calls[0]?.prompt).toContain("Referenzantwort: Express kostet 9,90 €, Jonas.");
     expect(provider.calls[0]?.prompt).toContain("Zielsystem: Hallo Jonas.");
+  });
+
+  it("keeps the tokens of the rounds already rated when a later rating fails (issue #125)", async () => {
+    const failed = withUsage(new InvalidJsonError("kein JSON", "x"), {
+      tokens: { input: 70, output: 30 },
+      unreportedCalls: 0,
+    });
+    const provider = new FakeProvider([answer(["passt-zur-runde"]), failed]);
+    const rounds = roundsOf(
+      ["Hallo, ich bin Jonas.", "Hallo Jonas, was kann ich für dich tun?"],
+      ["Was kostet Express, und wie heiße ich?", "Express kostet 9,90 €, Jonas."],
+    );
+    const error: unknown = await judgeIteration(
+      new Judge(provider, JUDGE_PROMPT_V1),
+      express,
+      { content: "Express kostet 9,90 €, Jonas.", latencyMs: 1 },
+      rounds,
+    ).catch((caught: unknown) => caught);
+
+    expect(error).toBe(failed);
+    const first = provider.calls[0]?.prompt.length ?? 0;
+    const usage = usageOfError(error);
+    expect(usage?.tokens.input).toBe(first + 70);
+    expect(usage?.tokens.output).toBe(answer(["passt-zur-runde"]).length + 30);
+    expect(usage?.unreportedCalls).toBe(0);
+  });
+
+  it("counts a failed rating without token numbers as a call the budget did not see", async () => {
+    const provider = new FakeProvider([answer(["passt-zur-runde"]), new Error("Netz weg")]);
+    const rounds = roundsOf(
+      ["Hallo, ich bin Jonas.", "Hallo Jonas, was kann ich für dich tun?"],
+      ["Was kostet Express, und wie heiße ich?", "Express kostet 9,90 €, Jonas."],
+    );
+    const error: unknown = await judgeIteration(
+      new Judge(provider, JUDGE_PROMPT_V1),
+      express,
+      { content: "Express kostet 9,90 €, Jonas.", latencyMs: 1 },
+      rounds,
+    ).catch((caught: unknown) => caught);
+    expect(usageOfError(error)?.unreportedCalls).toBe(1);
+    expect(usageOfError(error)?.tokens.input).toBeGreaterThan(0);
   });
 
   it("judges only the scripted earlier rounds when the case has neither rubric nor reference", async () => {

@@ -1,3 +1,5 @@
+import type { Tokens } from "../domain/common.js";
+
 /** Length of the response excerpt kept in error messages and iteration logs. */
 export const EXCERPT_LENGTH = 200;
 
@@ -56,6 +58,21 @@ export class FatalTargetError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "FatalTargetError";
+  }
+}
+
+/**
+ * A call that failed after the target did work, with the tokens it reported for that work
+ * (issue #125). The message is what the iteration records as error; the tokens count against
+ * the budget like those of an answer.
+ */
+export class FailedCallError extends Error {
+  constructor(
+    message: string,
+    readonly tokens?: Tokens,
+  ) {
+    super(message);
+    this.name = "FailedCallError";
   }
 }
 

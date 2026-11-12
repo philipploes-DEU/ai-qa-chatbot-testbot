@@ -1,0 +1,31 @@
+# Checks title and text of a pull request for emoji (issue #126). Its own workflow, so that
+# editing the text reruns this check alone and not the whole ci.
+name: pr-text
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  pr-text:
+    name: pr-text
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # Title and text travel as environment variables, never through the command line: a
+      # pull request text is input from outside.
+      - name: Reject emoji in title and text
+        run: node scripts/check-no-emoji.mjs --env PR_TITLE --env PR_BODY
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
